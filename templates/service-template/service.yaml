@@ -1,0 +1,40 @@
+name: my-service
+version: "1.0.0"
+description: "One-line description of what this service does"
+category: inference  # One of: inference, tools, media, dev, monitoring
+author: Your Name
+license: MIT
+homepage: https://github.com/example/my-service
+
+requires:
+  gpu: false
+  # vram_min_gb: 8  # Uncomment if GPU is required
+  arch: [amd64, arm64]
+
+ports:
+  - host: 8080
+    container: 8080
+    protocol: tcp
+    description: HTTP API
+
+config:
+  - name: MY_CONFIG_VAR
+    description: Description of this configuration option
+    default: "default-value"
+    required: false
+
+health_check:
+  endpoint: /health
+  port: 8080
+  interval: "30s"
+  timeout: "5s"
+  retries: 3
+
+volumes:
+  - name: data
+    host: ~/citadel-cache/my-service
+    container: /data
+    description: Persistent data storage
+
+tags:
+  - example

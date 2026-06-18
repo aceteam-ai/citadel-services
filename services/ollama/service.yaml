@@ -1,0 +1,37 @@
+name: ollama
+version: "latest"
+description: "Local LLM runner with model management"
+category: inference
+author: Ollama
+license: MIT
+homepage: https://ollama.com
+
+requires:
+  gpu: false
+  arch: [amd64, arm64]
+
+ports:
+  - host: 11434
+    container: 11434
+    protocol: tcp
+    description: Ollama API
+
+config: []
+
+health_check:
+  endpoint: /api/tags
+  port: 11434
+  interval: "30s"
+  timeout: "5s"
+  retries: 3
+
+volumes:
+  - name: ollama-data
+    host: ~/citadel-cache/ollama
+    container: /root/.ollama
+    description: Model storage and configuration
+
+tags:
+  - llm
+  - inference
+  - model-management

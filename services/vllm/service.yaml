@@ -1,0 +1,52 @@
+name: vllm
+version: "0.23.0"
+description: "High-performance LLM inference with PagedAttention"
+category: inference
+author: vLLM Team
+license: Apache-2.0
+homepage: https://docs.vllm.ai
+
+requires:
+  gpu: true
+  vram_min_gb: 8
+  arch: [amd64]
+
+ports:
+  - host: 8100
+    container: 8000
+    protocol: tcp
+    description: OpenAI-compatible API
+
+config:
+  - name: MODEL
+    description: HuggingFace model ID to serve
+    default: "Qwen/Qwen3-8B"
+    required: false
+  - name: GPU_MEMORY_UTILIZATION
+    description: Fraction of GPU memory to use (0.0-1.0)
+    default: "0.85"
+    required: false
+  - name: MAX_MODEL_LEN
+    description: Maximum sequence length
+    default: "16384"
+    required: false
+
+health_check:
+  endpoint: /health
+  port: 8100
+  interval: "30s"
+  timeout: "10s"
+  retries: 5
+
+volumes:
+  - name: huggingface-cache
+    host: ~/citadel-cache/huggingface
+    container: /root/.cache/huggingface
+    description: HuggingFace model cache
+
+tags:
+  - llm
+  - inference
+  - openai-compatible
+  - gpu
+  - tool-calling

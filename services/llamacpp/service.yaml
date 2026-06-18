@@ -1,0 +1,38 @@
+name: llamacpp
+version: "latest"
+description: "Lightweight GGUF model inference server"
+category: inference
+author: ggml-org
+license: MIT
+homepage: https://github.com/ggml-org/llama.cpp
+
+requires:
+  gpu: false
+  arch: [amd64, arm64]
+
+ports:
+  - host: 8080
+    container: 8080
+    protocol: tcp
+    description: llama.cpp HTTP API
+
+config: []
+
+health_check:
+  endpoint: /health
+  port: 8080
+  interval: "30s"
+  timeout: "5s"
+  retries: 3
+
+volumes:
+  - name: models
+    host: ~/citadel-cache/llamacpp
+    container: /models
+    description: GGUF model files
+
+tags:
+  - llm
+  - inference
+  - gguf
+  - lightweight

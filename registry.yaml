@@ -1,0 +1,17 @@
+version: 1
+services:
+  - name: ollama
+    version: "latest"
+    category: inference
+    gpu: optional
+    description: "Local LLM runner with model management"
+  - name: vllm
+    version: "0.23.0"
+    category: inference
+    gpu: required
+    description: "High-performance LLM inference with PagedAttention"
+  - name: llamacpp
+    version: "latest"
+    category: inference
+    gpu: optional
+    description: "Lightweight GGUF model inference server"

@@ -1,0 +1,127 @@
+$schema: "https://json-schema.org/draft/2020-12/schema"
+title: Citadel Service Definition
+description: Schema for service.yaml files in the citadel-services catalog
+type: object
+required:
+  - name
+  - version
+  - description
+  - category
+properties:
+  name:
+    type: string
+    description: Unique service identifier (lowercase, alphanumeric + hyphens)
+    pattern: "^[a-z0-9][a-z0-9-]*$"
+  version:
+    type: string
+    description: Service version or "latest"
+  description:
+    type: string
+    description: One-line description of the service
+  category:
+    type: string
+    enum: [inference, tools, media, dev, monitoring]
+    description: Service category
+  author:
+    type: string
+    description: Author or maintainer
+  license:
+    type: string
+    description: SPDX license identifier
+  homepage:
+    type: string
+    format: uri
+    description: Upstream project URL
+  requires:
+    type: object
+    properties:
+      gpu:
+        type: boolean
+        description: Whether a GPU is required
+      vram_min_gb:
+        type: number
+        description: Minimum VRAM in GB (only relevant when gpu is true)
+      arch:
+        type: array
+        items:
+          type: string
+          enum: [amd64, arm64]
+        description: Supported CPU architectures
+  ports:
+    type: array
+    items:
+      type: object
+      required: [host, container]
+      properties:
+        host:
+          type: integer
+          description: Host port number
+        container:
+          type: integer
+          description: Container port number
+        protocol:
+          type: string
+          enum: [tcp, udp]
+          default: tcp
+        description:
+          type: string
+  config:
+    type: array
+    items:
+      type: object
+      required: [name, description]
+      properties:
+        name:
+          type: string
+          description: Environment variable name
+        description:
+          type: string
+        default:
+          description: Default value (any type)
+        required:
+          type: boolean
+          default: false
+  health_check:
+    type: object
+    required: [endpoint, port]
+    properties:
+      endpoint:
+        type: string
+        description: HTTP path for health check
+      port:
+        type: integer
+        description: Port to check
+      interval:
+        type: string
+        description: Check interval (e.g. "30s")
+        default: "30s"
+      timeout:
+        type: string
+        description: Check timeout (e.g. "5s")
+        default: "5s"
+      retries:
+        type: integer
+        description: Number of retries before marking unhealthy
+        default: 3
+  volumes:
+    type: array
+    items:
+      type: object
+      required: [name, host, container]
+      properties:
+        name:
+          type: string
+          description: Volume identifier
+        host:
+          type: string
+          description: Host path
+        container:
+          type: string
+          description: Container mount path
+        description:
+          type: string
+  tags:
+    type: array
+    items:
+      type: string
+    description: Searchable tags for the service
