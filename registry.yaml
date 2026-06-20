@@ -15,3 +15,9 @@ services:
     category: inference
     gpu: optional
     description: "Lightweight GGUF model inference server"
+  - name: wechat
+    version: "latest"
+    category: tools
+    gpu: "no"
+    description: "Personal WeChat REST API via WeChatFerry (per-person, Windows VM)"
+    tags: [wechat, messaging, personal, windows-only]
