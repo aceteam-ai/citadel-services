@@ -9,6 +9,9 @@ Service catalog for [Citadel](https://github.com/aceteam-ai/citadel-cli) nodes. 
 | [ollama](services/ollama/) | inference | optional | Local LLM runner with model management |
 | [vllm](services/vllm/) | inference | required | High-performance LLM inference with PagedAttention |
 | [llamacpp](services/llamacpp/) | inference | optional | Lightweight GGUF model inference server |
+| [wechat](services/wechat/) | tools | no | Personal WeChat REST API via WeChatFerry (Windows VM) [^host] |
+
+[^host]: `wechat` is **host-provisioned** on a Windows VM (WeChatFerry DLL injection), not a Docker Compose stack. It has no `compose.yml` and is **not** installable via `citadel service catalog install`; the catalog entry exists for discoverability. See [services/wechat/](services/wechat/) for provisioning.
 
 ## Browse Services
 
