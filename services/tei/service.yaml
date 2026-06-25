@@ -1,0 +1,50 @@
+name: tei
+version: "1.9"
+description: "Text embeddings (HF Text-Embeddings-Inference), OpenAI-compatible /v1/embeddings"
+category: inference
+author: Hugging Face / AceTeam
+license: Apache-2.0
+homepage: https://github.com/huggingface/text-embeddings-inference
+
+requires:
+  gpu: true
+  vram_min_gb: 2
+  arch: [amd64]
+
+ports:
+  - host: 8102
+    container: 80
+    protocol: tcp
+    description: OpenAI-compatible embeddings API (/v1/embeddings, native /embed)
+
+config:
+  - name: EMBED_MODEL
+    description: HuggingFace embedding model ID to serve
+    default: "Alibaba-NLP/gte-multilingual-base"
+    required: false
+  - name: TEI_IMAGE
+    description: >-
+      TEI Docker image. GPU-arch specific: 86-1.9 = Ampere (RTX 3090), 89-1.9 = Ada,
+      turing-1.9, hopper-1.9, cpu-1.9. Override per node's hardware.
+    default: "ghcr.io/huggingface/text-embeddings-inference:86-1.9"
+    required: false
+
+health_check:
+  endpoint: /health
+  port: 8102
+  interval: "30s"
+  timeout: "10s"
+  retries: 5
+
+volumes:
+  - name: huggingface-cache
+    host: ~/citadel-cache/huggingface
+    container: /data
+    description: TEI model cache (artifacts under /data)
+
+tags:
+  - embeddings
+  - inference
+  - openai-compatible
+  - multilingual
+  - gpu
