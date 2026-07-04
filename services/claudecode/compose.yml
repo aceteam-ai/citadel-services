@@ -1,0 +1,40 @@
+# Catalog compose for the headless Claude Code agent-runtime module.
+#
+# Published from aceteam-ai/citadel-cli (services/claudecode-service/compose.yml)
+# per citadel-cli#432/#458. `citadel module install claudecode` copies this into
+# the node's services dir and `citadel run claudecode` brings it up via
+# startService -> composeEnv, which injects CITADEL_CLAUDECODE_HOST_PORT from the
+# host-port registry (citadel-cli services/ports.go). That is why the host publish
+# is deferred to ${CITADEL_CLAUDECODE_HOST_PORT:?...} rather than a literal 8204:
+# the registry owns the port so a second agent-runtime module cannot collide.
+#
+# Image pinned to the tag published by citadel-cli#442. Move to an immutable
+# :sha / @sha256 digest once that PR merges (see service.yaml header).
+services:
+  claudecode:
+    image: ghcr.io/aceteam-ai/claudecode-service:latest
+    container_name: citadel-claudecode
+    ports:
+      - "${CITADEL_CLAUDECODE_HOST_PORT:?citadel must supply CITADEL_CLAUDECODE_HOST_PORT}:8787"
+    volumes:
+      # Entrypoint (root) chowns this mount to the claude user, then drops
+      # privileges -- a fresh host-owned dir "just works" with no pre-create.
+      - ~/citadel-cache/claudecode:/home/claude/.claude
+    environment:
+      - ACETEAM_INSTANCE_ID=${ACETEAM_INSTANCE_ID:?set ACETEAM_INSTANCE_ID}
+      - ACETEAM_PLATFORM_URL=${ACETEAM_PLATFORM_URL:?set ACETEAM_PLATFORM_URL}
+      - ACETEAM_GATEWAY_KEY=${ACETEAM_GATEWAY_KEY:?set ACETEAM_GATEWAY_KEY}
+      - ANTHROPIC_BASE_URL=${ANTHROPIC_BASE_URL:?set ANTHROPIC_BASE_URL to the fabric proxy}
+      - ANTHROPIC_AUTH_TOKEN=${ANTHROPIC_AUTH_TOKEN:?set ANTHROPIC_AUTH_TOKEN for the proxy}
+      - ANTHROPIC_MODEL=${ANTHROPIC_MODEL:?set ANTHROPIC_MODEL}
+      - ANTHROPIC_SMALL_FAST_MODEL=${ANTHROPIC_SMALL_FAST_MODEL:-}
+      - PORT=8787
+      - CLAUDE_CONFIG_DIR=/home/claude/.claude
+      - CLAUDECODE_TURN_TIMEOUT=${CLAUDECODE_TURN_TIMEOUT:-600}
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8787/health')"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
+    restart: unless-stopped

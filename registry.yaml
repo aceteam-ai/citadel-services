@@ -27,3 +27,9 @@ services:
     gpu: "no"
     description: "Personal WeChat REST API via WeChatFerry (per-person, Windows VM)"
     tags: [wechat, messaging, personal, windows-only]
+  - name: claudecode
+    version: "0.1.0"
+    category: agent-runtime
+    gpu: "no"
+    description: "Headless Claude Code agent-runtime (BYOC: agent + model on your own node via the fabric proxy)"
+    tags: [agent, claude-code, byoc]

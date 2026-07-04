@@ -20,7 +20,7 @@ properties:
     description: One-line description of the service
   category:
     type: string
-    enum: [inference, tools, media, dev, monitoring]
+    enum: [inference, tools, media, dev, monitoring, agent-runtime]
     description: Service category
   author:
     type: string
