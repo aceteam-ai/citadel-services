@@ -21,6 +21,12 @@ services:
     gpu: required
     description: "Text embeddings (HF TEI), OpenAI-compatible /v1/embeddings"
     tags: [embeddings, inference, openai-compatible, multilingual, gpu]
+  - name: gliner2
+    version: "0.1.0"
+    category: inference
+    gpu: "no"
+    description: "GLiNER2 NER + relation extraction (AdaExtract GLINER_EXTRACTION provider, CPU)"
+    tags: [extraction, ner, relation-extraction, gliner, gliner2, cpu]
   - name: wechat
     version: "latest"
     category: tools

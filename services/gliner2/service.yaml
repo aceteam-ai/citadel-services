@@ -1,0 +1,75 @@
+# Citadel module manifest for the GLiNER2 NER + relation extraction service.
+#
+# This is the provider for the fabric-dispatch GLINER_EXTRACTION capability
+# (citadel-cli internal/worker/job.go). citadel-cli already ships the node-side
+# ExtractionHandler and an embedded services/compose/extraction.yml that
+# references ghcr.io/aceteam-ai/gliner2-service:latest; this catalog module is
+# where that image's buildable source and the discoverable manifest live.
+#
+# Host port: the container serves :8100 (the port the AdaExtract GLiNER2Backend
+# client expects). citadel owns the host publish via CITADEL_EXTRACTION_HOST_PORT
+# (= 8202 in citadel-cli services/ports.go, kept clear of vllm's 8100 and the
+# 8100-8199 apps range). The `host: 8202` below matches that registry value.
+schema_version: 2
+name: gliner2
+version: 0.1.0
+description: >-
+  GLiNER2 NER + relation extraction. Serves the AdaExtract entity/relation
+  extraction contract (POST /extract) locally on your node -- CPU-first, no GPU,
+  no external API. Provider for the fabric GLINER_EXTRACTION capability.
+category: inference
+author: AceTeam
+license: Apache-2.0
+homepage: https://github.com/fastino-ai/GLiNER2
+
+requires:
+  # CPU-first: GLiNER2 base is 205M params and runs fine without a GPU.
+  gpu: false
+  arch: [amd64, arm64]
+
+ports:
+  # Container serves :8100; citadel publishes it on host 8202 via
+  # CITADEL_EXTRACTION_HOST_PORT (services/ports.go). A standalone
+  # `docker compose up` defaults the host publish to 8100.
+  - host: 8202
+    container: 8100
+    protocol: tcp
+    description: Extraction HTTP API (POST /extract, GET /health)
+
+config:
+  - name: MODEL_NAME
+    description: HuggingFace GLiNER2 model id to serve.
+    default: "fastino/gliner2-base-v1"
+    required: false
+  - name: EXTRACTION_THRESHOLD
+    description: Confidence threshold below which spans/relations are dropped.
+    default: 0.5
+    required: false
+
+health_check:
+  endpoint: /health
+  port: 8100
+  interval: 30s
+  timeout: 10s
+  retries: 5
+
+volumes:
+  - name: huggingface-cache
+    host: ~/citadel-cache/huggingface
+    container: /root/.cache/huggingface
+    description: HuggingFace model cache so restarts don't re-download the model.
+
+# Routing tags: make the node routable for GLINER_EXTRACTION fabric jobs. These
+# match the auto-tag map citadel-cli applies for the extraction service
+# (cmd/manifest.go), declared here so they merge regardless of module name.
+node_tags:
+  - extraction:gliner2
+  - model:gliner2-base-v1
+
+tags:
+  - extraction
+  - ner
+  - relation-extraction
+  - gliner
+  - gliner2
+  - cpu

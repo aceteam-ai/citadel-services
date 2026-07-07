@@ -9,6 +9,7 @@ Service catalog for [Citadel](https://github.com/aceteam-ai/citadel-cli) nodes. 
 | [ollama](services/ollama/) | inference | optional | Local LLM runner with model management |
 | [vllm](services/vllm/) | inference | required | High-performance LLM inference with PagedAttention |
 | [llamacpp](services/llamacpp/) | inference | optional | Lightweight GGUF model inference server |
+| [gliner2](services/gliner2/) | inference | no | GLiNER2 NER + relation extraction (AdaExtract `GLINER_EXTRACTION` provider) |
 | [wechat](services/wechat/) | tools | no | Personal WeChat REST API via WeChatFerry (Windows VM) [^host] |
 | [claudecode](services/claudecode/) | agent-runtime | no | Headless Claude Code agent-runtime (BYOC: agent + model on your own node) |
 
