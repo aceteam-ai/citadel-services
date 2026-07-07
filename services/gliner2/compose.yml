@@ -1,0 +1,40 @@
+# GLiNER2 NER + relation extraction service.
+#
+# The container serves the extraction HTTP contract on :8100 (the port the
+# AdaExtract `GLiNER2Backend` client hardcodes). The host publish defaults to
+# 8100 so a standalone `docker compose up` is reachable by that client, but when
+# citadel manages this module it injects CITADEL_EXTRACTION_HOST_PORT (8202 in
+# citadel-cli services/ports.go) to stay clear of vllm/the apps range -- and its
+# ExtractionHandler proxies to that same port. Both paths resolve to :8100
+# in-container.
+#
+# `image` + `build`: a plain `docker compose up` builds locally the first time;
+# a node that has pulled the published ghcr image just runs it. The published
+# image (ghcr.io/aceteam-ai/gliner2-service) is what citadel-cli's embedded
+# services/compose/extraction.yml references.
+services:
+  gliner2:
+    image: ghcr.io/aceteam-ai/gliner2-service:latest
+    build:
+      context: ./build
+    container_name: citadel-gliner2
+    ports:
+      - "${CITADEL_EXTRACTION_HOST_PORT:-8100}:8100"
+    environment:
+      - MODEL_NAME=${MODEL_NAME:-fastino/gliner2-base-v1}
+      - PORT=8100
+      - EXTRACTION_THRESHOLD=${EXTRACTION_THRESHOLD:-0.5}
+    volumes:
+      # Persist the HuggingFace model cache so restarts don't re-download.
+      - ~/citadel-cache/huggingface:/root/.cache/huggingface
+    restart: unless-stopped
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import urllib.request,json,sys; d=json.load(urllib.request.urlopen('http://localhost:8100/health')); sys.exit(0 if d.get('model_loaded') else 1)"
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 120s

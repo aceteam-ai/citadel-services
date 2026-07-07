@@ -1,0 +1,18 @@
+[project]
+name = "gliner2-service"
+version = "0.1.0"
+description = "GLiNER2 NER + relation extraction HTTP service for Citadel nodes"
+requires-python = ">=3.10"
+dependencies = [
+    "gliner2[local]==1.3.2",
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.30",
+    "pydantic>=2.0",
+]
+
+[tool.uv]
+# CPU-only torch keeps the image small; GLiNER2 is CPU-first (205M params).
+override-dependencies = []
+
+[tool.ruff]
+line-length = 100
