@@ -1,0 +1,48 @@
+# Catalog compose for the LiveKit WebRTC SFU (AceTeam voice huddles).
+#
+# Host networking on purpose: the SFU's media plane is a single-port UDP mux
+# (7882) plus an ICE/TCP fallback (7881). Publishing UDP through Docker's
+# userland proxy adds a relay hop per packet and hides the host's real
+# interfaces from ICE candidate gathering; `network_mode: host` gives LiveKit
+# the actual host sockets so `use_external_ip` advertises usable candidates.
+# Ports 7880-7882 are reserved in the citadel host-port registry
+# (citadel-cli services/ports.go) so nothing else claims them.
+#
+# The whole server config is passed as one LIVEKIT_CONFIG env var (a YAML
+# document livekit-server reads natively). Compose interpolates the per-node
+# key/secret and webhook URL from the install-time .env; both sides of the key
+# pair are quoted so a secret containing YAML-significant characters cannot
+# break the document.
+#
+# use_external_ip: the server discovers its public address via STUN and
+# advertises it as an ICE candidate, so browsers outside the node's LAN can
+# hole-punch directly. LAN/mesh candidates are still advertised for same-site
+# callers. No inbound port-forward is required on friendly NATs; the platform
+# TURN fallback covers the rest.
+services:
+  livekit:
+    image: livekit/livekit-server:v1.13.3
+    container_name: citadel-livekit
+    network_mode: host
+    environment:
+      LIVEKIT_CONFIG: |
+        port: 7880
+        rtc:
+          tcp_port: 7881
+          udp_port: 7882
+          use_external_ip: true
+        keys:
+          "${LIVEKIT_API_KEY:?set LIVEKIT_API_KEY (platform-generated per node)}": "${LIVEKIT_API_SECRET:?set LIVEKIT_API_SECRET (pairs with LIVEKIT_API_KEY)}"
+        webhook:
+          api_key: "${LIVEKIT_API_KEY}"
+          urls:
+            - "${LIVEKIT_WEBHOOK_URL:-https://aceteam.ai/api/chat/huddle/webhook}"
+        logging:
+          level: info
+    healthcheck:
+      # The image is alpine-based; busybox wget probes the signaling port.
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:7880/"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    restart: unless-stopped

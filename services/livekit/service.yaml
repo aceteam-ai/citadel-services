@@ -1,0 +1,90 @@
+# Citadel service manifest for the LiveKit WebRTC SFU.
+#
+# Powers AceTeam team-chat voice huddles: a channel picks a node as its call
+# machine, the platform provisions this service onto it, and browsers connect
+# with signaling proxied via the platform relay (wss://aceteam.ai -> Python
+# relay -> this node :7880) while WebRTC media flows browser<->node directly.
+#
+# Networking: the compose runs with `network_mode: host` (High-severity warning,
+# not privilege-gated) because the SFU needs a real host UDP socket for its
+# single-port media mux (7882). Docker's userland proxy and single-port publish
+# bookkeeping are bypassed by design; the three ports below are reserved in the
+# citadel host-port registry (citadel-cli services/ports.go) so no app or module
+# publish can collide with them.
+#
+# Keys: LIVEKIT_API_KEY/LIVEKIT_API_SECRET are generated per-node by the
+# AceTeam platform (stored there for token minting + webhook verification) and
+# injected at install/launch. For a manual install, supply them with --set.
+#
+# Linux-only: docker host networking is a no-op inside the Docker Desktop VM on
+# macOS/Windows, so media ports would never reach the host there.
+schema_version: 2
+name: livekit
+version: "v1.13.3"
+description: >-
+  LiveKit WebRTC SFU for AceTeam voice huddles. Hosts team-chat calls
+  (audio + screen share) on your own node; media stays on your hardware.
+category: media
+author: LiveKit
+license: Apache-2.0
+homepage: https://github.com/livekit/livekit
+
+requires:
+  # CPU-only: an SFU forwards RTP packets, it does not transcode.
+  gpu: false
+  arch: [amd64, arm64]
+
+# Documented for operators and the install-time conflict precheck. The compose
+# uses host networking, so these are the ports LiveKit's own config binds on
+# the host, not Docker publishes.
+ports:
+  - host: 7880
+    container: 7880
+    protocol: tcp
+    description: Signaling WebSocket + HTTP API (reached over the mesh via the platform relay)
+  - host: 7881
+    container: 7881
+    protocol: tcp
+    description: WebRTC ICE/TCP fallback
+  - host: 7882
+    container: 7882
+    protocol: udp
+    description: WebRTC media, single-port UDP mux
+
+config:
+  - name: LIVEKIT_API_KEY
+    description: >-
+      API key id for this node's SFU. Platform-generated during huddle
+      provisioning; pass your own for a standalone install.
+    required: true
+  - name: LIVEKIT_API_SECRET
+    description: >-
+      API secret paired with LIVEKIT_API_KEY. Signs access tokens and webhook
+      payloads; the AceTeam platform holds the same secret to mint join tokens.
+    required: true
+  - name: LIVEKIT_WEBHOOK_URL
+    description: >-
+      HTTPS endpoint that receives LiveKit room/participant webhook events
+      (outbound from this node, signed with the API key/secret).
+    default: "https://aceteam.ai/api/chat/huddle/webhook"
+
+health_check:
+  endpoint: /
+  port: 7880
+  interval: "30s"
+  timeout: "5s"
+  retries: 3
+
+volumes: []
+
+# Namespaced routing tag: the node advertises itself as huddle-capable without
+# a CLI change (mirrors claudecode's runtime:claudecode).
+node_tags:
+  - service:livekit
+
+tags:
+  - webrtc
+  - sfu
+  - voice
+  - huddle
+  - media

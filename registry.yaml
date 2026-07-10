@@ -39,3 +39,9 @@ services:
     gpu: "no"
     description: "Headless Claude Code agent-runtime (BYOC: agent + model on your own node via the fabric proxy)"
     tags: [agent, claude-code, byoc]
+  - name: livekit
+    version: "v1.13.3"
+    category: media
+    gpu: "no"
+    description: "LiveKit WebRTC SFU hosting AceTeam voice huddles (team-chat calls) on your node"
+    tags: [webrtc, sfu, voice, huddle, media]
