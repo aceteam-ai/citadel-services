@@ -1,0 +1,41 @@
+# Catalog compose for Gotenberg (LibreOffice + Chromium document-conversion
+# API). Sovereign Sign's (aceteam-ai/aceteam#5793) P2 dependency: converts DOCX
+# source documents to PDF on the customer's own Citadel node.
+#
+# Image pin: gotenberg/gotenberg:8 -- the current stable major (SemVer; the
+# maintainers publish :8, :8.<minor>, and :8.<minor>.<patch> tags). Pinning the
+# major only (not a full x.y.z) accepts patch-level drift in exchange for
+# picking up LibreOffice/Chromium security fixes without a catalog PR each
+# release; re-evaluate pinning a full patch version once this module has
+# production traffic.
+#
+# Host port: container serves :3000 (Gotenberg's native default). citadel
+# injects CITADEL_GOTENBERG_HOST_PORT (8209 -- next free slot in citadel-cli's
+# services/ports.go 8200+ block; see service.yaml for detail). A standalone
+# `docker compose up` defaults the host publish to 3000.
+#
+# Loopback-only publish (127.0.0.1), deliberately: per #5793 the only consumer
+# is the co-located citadel worker dispatching conversion jobs on this same
+# node (sandbox_run_tool / terminal_exec), not a mesh caller -- same reasoning
+# as the meeting module's loopback-only ports. Gotenberg has no auth of its
+# own, Chromium's HTML route can fetch arbitrary URLs, and LibreOffice parses
+# untrusted input, so this must not be reachable off-host. citadel-cli's
+# ProbeHealth always dials 127.0.0.1 (internal/catalog/health.go), so this
+# does not affect health probing.
+services:
+  gotenberg:
+    image: gotenberg/gotenberg:8
+    container_name: citadel-gotenberg
+    ports:
+      - "127.0.0.1:${CITADEL_GOTENBERG_HOST_PORT:-3000}:3000"
+    environment:
+      - API_TIMEOUT=${API_TIMEOUT:-30s}
+      - LIBREOFFICE_MAX_QUEUE_SIZE=${LIBREOFFICE_MAX_QUEUE_SIZE:-0}
+      - CHROMIUM_MAX_QUEUE_SIZE=${CHROMIUM_MAX_QUEUE_SIZE:-0}
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "/usr/bin/curl", "-f", "http://localhost:3000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s

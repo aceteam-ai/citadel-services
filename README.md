@@ -13,6 +13,7 @@ Service catalog for [Citadel](https://github.com/aceteam-ai/citadel-cli) nodes. 
 | [wechat](services/wechat/) | tools | no | Personal WeChat REST API via WeChatFerry (Windows VM) [^host] |
 | [claudecode](services/claudecode/) | agent-runtime | no | Headless Claude Code agent-runtime (BYOC: agent + model on your own node) |
 | [livekit](services/livekit/) | media | no | LiveKit WebRTC SFU hosting AceTeam voice huddles (team-chat calls) |
+| [gotenberg](services/gotenberg/) | tools | no | Document conversion API (LibreOffice Office->PDF + Chromium HTML->PDF); Sovereign Sign's sovereign DOCX->PDF conversion |
 
 [^host]: `wechat` is **host-provisioned** on a Windows VM (WeChatFerry DLL injection), not a Docker Compose stack. It has no `compose.yml` and is **not** installable via `citadel service catalog install`; the catalog entry exists for discoverability. See [services/wechat/](services/wechat/) for provisioning.
 
