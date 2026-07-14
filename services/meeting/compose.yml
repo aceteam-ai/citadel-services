@@ -1,0 +1,52 @@
+# Module compose for the meeting media stack (citadel-cli#514).
+#
+# This is the catalog-install variant, published to aceteam-ai/citadel-services
+# (services/meeting/compose.yml) so `citadel module install meeting` resolves it.
+# `citadel run meeting` brings it up via startService -> composeEnv, which injects
+# the host ports from the registry (citadel-cli services/ports.go): meetingd on
+# CITADEL_MEETINGD_HOST_PORT (8207) and Chrome CDP on CITADEL_MEETING_CDP_HOST_PORT
+# (8208). Both publish to the HOST LOOPBACK only -- the sole consumer is the
+# co-located citadel process, and nothing should reach these over the mesh.
+#
+# CDP note: Chrome binds --remote-debugging-address=0.0.0.0 INSIDE the container
+# (see chrome_flags.py) so this publish can forward to it; the 127.0.0.1: host
+# binding is what keeps CDP off every non-loopback interface.
+services:
+  meeting:
+    image: ghcr.io/aceteam-ai/meeting-service:latest
+    container_name: citadel-meeting
+    # Chrome crashes on the default 64MB /dev/shm; give it room.
+    shm_size: "1g"
+    ports:
+      - "127.0.0.1:${CITADEL_MEETINGD_HOST_PORT:?citadel must supply CITADEL_MEETINGD_HOST_PORT}:8102"
+      - "127.0.0.1:${CITADEL_MEETING_CDP_HOST_PORT:?citadel must supply CITADEL_MEETING_CDP_HOST_PORT}:9223"
+    volumes:
+      # Persistent signed-in Google profile. MUST be a host dir (never a named
+      # volume) so the human's one-time sign-in survives restart, upgrade, and
+      # uninstall/reinstall. Docker Compose does NOT expand "~", so citadel
+      # supplies an absolute path (config default ~/.citadel-cli/meeting-profile,
+      # resolved by the installer). The entrypoint chowns it to the bot user.
+      - "${MEETING_PROFILE_DIR:?set MEETING_PROFILE_DIR to an absolute host dir}:/profile"
+      # WAV output -- the SAME workspace mount the whisper sidecar reads. Mounted
+      # READ-WRITE here (meetingd writes the WAV); the transcribe sidecar mounts
+      # the same path read-only.
+      - "${CITADEL_WORKSPACE:?set CITADEL_WORKSPACE to an absolute workspace path}:/workspace"
+    environment:
+      - MEETINGD_PORT=8102
+      - MEETING_CDP_PORT=9223
+      - DISPLAY=:99
+      - XVFB_RESOLUTION=${XVFB_RESOLUTION:-1280x720x24}
+      - PULSE_SERVER=unix:/run/pulse/native
+      - MEETING_PROFILE_DIR=/profile
+      # meetingd reads CITADEL_WORKSPACE (defaults to /workspace, the mount) to
+      # place WAV output; keep it explicit so it matches the container mount.
+      - CITADEL_WORKSPACE=/workspace
+    healthcheck:
+      # Canary-tone capture: healthy ONLY when the container can record
+      # non-silent audio (guards the autoplay-silence failure class).
+      test: ["CMD", "python3", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8102/health').status==200 else 1)"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
+    restart: unless-stopped
