@@ -45,3 +45,9 @@ services:
     gpu: "no"
     description: "LiveKit WebRTC SFU hosting AceTeam voice huddles (team-chat calls) on your node"
     tags: [webrtc, sfu, voice, huddle, media]
+  - name: meeting
+    version: "0.1.0"
+    category: media
+    gpu: "no"
+    description: "Meeting notetaker media stack: Chromium + Xvfb + PulseAudio + ffmpeg + session supervisor (records call audio, no host media stack)"
+    tags: [meeting, notetaker, media, chromium]

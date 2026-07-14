@@ -1,0 +1,108 @@
+# Citadel module manifest for the meeting media stack.
+#
+# Published from aceteam-ai/citadel-cli (services/meeting-service) per
+# citadel-cli#514. This is the catalog copy that `citadel module install meeting`
+# resolves via catalog.LoadServiceManifest -> services/meeting/. One Linux
+# container bundles Chromium + Xvfb + PulseAudio + ffmpeg + a session supervisor
+# (meetingd), so a node can join a call and record clean audio with NO host media
+# stack.
+#
+# Host ports: registered in the citadel host-port registry (citadel-cli
+# services/ports.go) -- CITADEL_MEETINGD_HOST_PORT = 8207 (control/health) and
+# CITADEL_MEETING_CDP_HOST_PORT = 8208 (Chrome CDP). Both publish to the host
+# LOOPBACK only. The `host:` values below must equal those registry values (they
+# are what the install-time port-conflict pre-check reads). Fable's design
+# sketched ~8102 for the control API, but 8102 is the reserved TEI embedding
+# port, so it moved to 8207.
+#
+# Image: ghcr.io/aceteam-ai/meeting-service, published by the citadel-cli build
+# workflow (build-meeting-service.yml). Currently :latest to match the other
+# catalog services; move to an immutable :sha / @sha256 digest once the image
+# stabilizes.
+schema_version: 2
+name: meeting
+version: "0.1.0"
+description: >-
+  Meeting notetaker media stack: Chromium + Xvfb + PulseAudio + ffmpeg + a
+  session supervisor (meetingd). Joins a call and records clean per-session audio
+  with no host media stack required.
+category: media
+author: AceTeam
+license: Apache-2.0
+homepage: https://github.com/aceteam-ai/citadel-cli/issues/514
+
+requires:
+  # softwareGL under Xvfb; never wants a GPU.
+  gpu: false
+  # v1 is amd64-only: the published image is linux/amd64. arm64 (Chromium arm64
+  # exists) is a deferred follow-up -- declaring it here before the image is
+  # multi-arch would make install fail at pull on arm64 nodes.
+  arch: [amd64]
+
+ports:
+  # meetingd control/health API. Fixed in-container contract port 8102, published
+  # on the citadel-owned host port 8207 (loopback only).
+  - host: 8207
+    container: 8102
+    protocol: tcp
+    description: meetingd session/control + /health API (loopback only)
+  # Chrome CDP for the active meeting session. host 8208 (registry) -> container
+  # 9223. Published on the host loopback only.
+  - host: 8208
+    container: 9223
+    protocol: tcp
+    description: Chrome DevTools Protocol for the active session (loopback only)
+
+config:
+  - name: MEETING_PROFILE_DIR
+    description: >-
+      Host dir holding the persistent signed-in bot Chrome profile. MUST be a
+      host path (never a named volume) so the signed-in Google session survives
+      restart, upgrade, and reinstall.
+    default: "~/.citadel-cli/meeting-profile"
+  - name: XVFB_RESOLUTION
+    description: Virtual display geometry for the meeting browser.
+    default: "1280x720x24"
+
+health_check:
+  # Canary-tone capture: healthy ONLY when the container can record non-silent
+  # audio (guards the autoplay-silence failure class). The port is the HOST port
+  # (8207) so catalog.ProbeHealth -- which drives the capability gate -- can
+  # actually reach it over the loopback.
+  endpoint: /health
+  port: 8207
+  interval: "30s"
+  timeout: "10s"
+  retries: 3
+
+volumes:
+  - name: profile
+    host: "~/.citadel-cli/meeting-profile"
+    container: /profile
+    description: Persistent signed-in Google profile (must survive reinstall).
+  - name: workspace
+    host: "${CITADEL_WORKSPACE}"
+    container: /workspace
+    description: WAV output; the same mount the transcribe sidecar reads.
+
+# Namespaced routing tag so this node becomes routable for meeting jobs. NOTE the
+# worker's meeting gate is module-health-aware (a later PR); this tag is for
+# `citadel status` display and generic routing.
+node_tags:
+  - meeting
+
+# Least-privilege declaration for citadel's installer. Deliberately NO devices
+# (the null sink is pure software) and NO host_network (the only consumer is the
+# co-located citadel process over the loopback).
+sandbox:
+  writable_paths: [/profile, /run, /tmp, /home/bot]
+  resources:
+    cpu: "2.0"
+    memory: "3g"
+    pids: 1024
+
+tags:
+  - meeting
+  - notetaker
+  - media
+  - chromium
