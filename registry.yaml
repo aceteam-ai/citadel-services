@@ -51,3 +51,9 @@ services:
     gpu: "no"
     description: "Meeting notetaker media stack: Chromium + Xvfb + PulseAudio + ffmpeg + session supervisor (records call audio, no host media stack)"
     tags: [meeting, notetaker, media, chromium]
+  - name: gotenberg
+    version: "8"
+    category: tools
+    gpu: "no"
+    description: "Document conversion API (LibreOffice Office->PDF + Chromium HTML->PDF); Sovereign Sign's sovereign DOCX->PDF conversion (#5793)"
+    tags: [conversion, pdf, docx, office, libreoffice, chromium, html-to-pdf, sovereign-sign, cpu]

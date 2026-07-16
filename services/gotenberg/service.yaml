@@ -1,0 +1,113 @@
+# Citadel module manifest for Gotenberg, a stateless HTTP API wrapping
+# LibreOffice (Office -> PDF) and Chromium (HTML -> PDF).
+#
+# This is the P2 dependency for Sovereign Sign (aceteam-ai/aceteam#5793, see the
+# "P2: DOCX source support via Citadel-hosted LibreOffice" comment): DOCX source
+# documents must convert to PDF on the customer's own Citadel node so the
+# document never leaves their hardware before it is hashed and signed. The
+# fabric dispatches DOCX->PDF here instead of running LibreOffice centrally.
+#
+# Engine choice: Gotenberg over raw `libreoffice --headless` / unoserver --
+# Gotenberg is a maintained, stateless HTTP wrapper around the same LibreOffice
+# UNO conversion path (it manages soffice processes, restarts, and request
+# queueing internally), ships official multi-arch images, and adds Chromium
+# HTML->PDF as a bonus (useful for high-fidelity page rendering elsewhere in
+# the product). Running bare soffice/unoserver would mean re-implementing that
+# process supervision ourselves for no benefit.
+#
+# Host port: the container serves :3000 (Gotenberg's native default). No entry
+# for this module exists yet in citadel-cli's services/ports.go 8200+ registry
+# block (last allocated: meeting's 8207/8208 -- see that file). This catalog
+# module reserves the NEXT free slot, 8209, via CITADEL_GOTENBERG_HOST_PORT,
+# following the same pattern as claudecode/meeting/livekit (module compose
+# lives here in citadel-services, host port is owned by citadel-cli's
+# registry). Registering `EnvGotenbergHostPort = "CITADEL_GOTENBERG_HOST_PORT"`
+# / `GotenbergHostPort = 8209` in citadel-cli is a follow-up PR against that
+# repo -- out of scope here (catalog-only change). A standalone
+# `docker compose up` defaults the host publish to 3000 (matches container).
+schema_version: 2
+name: gotenberg
+version: "8"
+description: >-
+  Gotenberg document-conversion API: LibreOffice-backed Office->PDF (DOCX,
+  XLSX, PPTX, ODT, ...) and Chromium-backed HTML->PDF, on your own node.
+  Provider for Sovereign Sign's DOCX source-document conversion -- documents
+  are converted where they live and never leave the node.
+category: tools
+author: AceTeam
+license: MIT
+homepage: https://gotenberg.dev
+
+requires:
+  # CPU-only: LibreOffice conversion and headless Chromium rendering are both
+  # CPU-bound, no GPU acceleration in the conversion path.
+  gpu: false
+  arch: [amd64, arm64]
+
+ports:
+  # Container serves :3000 (Gotenberg's native default). citadel publishes it
+  # on host 8209 via CITADEL_GOTENBERG_HOST_PORT (next free slot in the
+  # citadel-cli services/ports.go 8200+ block, after meeting's 8208). A
+  # standalone `docker compose up` defaults the host publish to 3000. Published
+  # to 127.0.0.1 ONLY (compose.yml) -- the sole consumer is the co-located
+  # citadel worker dispatching conversion jobs on this same node, and
+  # Gotenberg has no auth of its own (untrusted-input LibreOffice parsing +
+  # Chromium URL fetch), so it must not be reachable off-host.
+  - host: 8209
+    container: 3000
+    protocol: tcp
+    description: Gotenberg HTTP API, loopback only (POST /forms/libreoffice/convert, POST /forms/chromium/convert/html, GET /health)
+
+config:
+  - name: API_TIMEOUT
+    description: >-
+      Per-request time limit (Gotenberg flag/env --api-timeout). Raise this
+      for large DOCX files or slow first-start LibreOffice/Chromium spin-up.
+    default: "30s"
+    required: false
+  - name: LIBREOFFICE_MAX_QUEUE_SIZE
+    description: >-
+      Maximum queued LibreOffice conversion requests before Gotenberg rejects
+      new ones with 503. 0 = unlimited.
+    default: 0
+    required: false
+  - name: CHROMIUM_MAX_QUEUE_SIZE
+    description: >-
+      Maximum queued Chromium (HTML->PDF) conversion requests before Gotenberg
+      rejects new ones with 503. 0 = unlimited.
+    default: 0
+    required: false
+
+health_check:
+  # citadel-cli's ProbeHealth always dials 127.0.0.1:<port> (confirmed in
+  # internal/catalog/health.go: "The host is always loopback: a module runs
+  # its container on this node"), so this must be the loopback HOST-reachable
+  # port (matches ports[].host above), not the in-container 3000 -- same
+  # convention as the meeting module's health_check.
+  endpoint: /health
+  port: 8209
+  interval: "30s"
+  timeout: "10s"
+  retries: 3
+
+volumes: []
+
+# Routing tags: make the node routable for Sovereign Sign's DOCX->PDF fabric
+# dispatch and for generic document/HTML conversion jobs. Mirrors gliner2's
+# extraction:gliner2 routing-tag pattern.
+node_tags:
+  - convert:documents
+  - convert:html
+  - tool:docconvert
+  - tool:gotenberg
+
+tags:
+  - conversion
+  - pdf
+  - docx
+  - office
+  - libreoffice
+  - chromium
+  - html-to-pdf
+  - sovereign-sign
+  - cpu
