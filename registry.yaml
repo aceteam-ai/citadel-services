@@ -57,3 +57,9 @@ services:
     gpu: "no"
     description: "Document conversion API (LibreOffice Office->PDF + Chromium HTML->PDF); Sovereign Sign's sovereign DOCX->PDF conversion (#5793)"
     tags: [conversion, pdf, docx, office, libreoffice, chromium, html-to-pdf, sovereign-sign, cpu]
+  - name: kokoro
+    version: "0.1.0"
+    category: inference
+    gpu: optional
+    description: "Kokoro text-to-speech (Kokoro-82M): OpenAI-compatible synthesis, EN + ZH voices, opus/mp3, content-addressed cache + per-item receipts; backs the fabric tts engine (#11)"
+    tags: [tts, text-to-speech, speech-synthesis, kokoro, audio, openai-compatible, english, mandarin, opus, mp3, cpu, gpu]
