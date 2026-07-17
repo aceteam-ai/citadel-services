@@ -596,19 +596,27 @@ async def speech_batch(req: BatchRequest):
     referenced by key (fetch via GET /v1/audio/cache/<key>)."""
     voice = req.voice
     fmt = req.response_format
-    lang_for_voice(voice)  # validate up front
+    lang = lang_for_voice(voice)  # validate up front (also used to key items)
     if fmt not in FORMAT_MIME:
         raise HTTPException(status_code=400, detail=f"unsupported format '{fmt}'")
+    assert _cache is not None
 
     async def gen():
         # Batch returns audio_url references (not inline bytes) so a 200-item
         # chapter isn't buffered in memory. But the LRU cap could evict an early
         # item before the client fetches its URL -- 404-ing a link just handed
-        # out. So pin each produced key against eviction for the life of this
+        # out. So pin each item's key against eviction for the life of this
         # response and release them in the finally (covers client disconnect:
         # GeneratorExit still runs finally). Guarantee: a batch key stays
         # reachable from when its receipt is emitted until the NDJSON stream
         # finishes; fetch promptly after the stream completes.
+        #
+        # We pin the key *before* calling synth (not after): synth_cached writes
+        # to the cache internally, and that write triggers eviction -- so if the
+        # batch's own output exceeds the cap, an item could be evicted during its
+        # own put before we ever saw the key. Pinning up front (keys are
+        # deterministic) closes that gap. Recording the key before synth also
+        # means a mid-synth failure still gets unpinned in the finally (no leak).
         pinned: list[str] = []
         try:
             for idx, item in enumerate(req.items):
@@ -617,6 +625,9 @@ async def speech_batch(req: BatchRequest):
                 # ffmpeg) emits an error line and the batch continues. Any native
                 # exception would otherwise abort the whole stream mid-flight --
                 # after a 200 OK -- silently dropping every remaining item.
+                key = cache_key(item.input, voice, fmt, req.speed, lang)
+                _cache.pin(key)
+                pinned.append(key)
                 try:
                     _, receipt = await synth_cached(item.input, voice, fmt, req.speed)
                 except HTTPException as e:
@@ -628,14 +639,11 @@ async def speech_batch(req: BatchRequest):
                         {"index": idx, "id": item.id, "error": f"{type(e).__name__}: {e}"}
                     ) + "\n"
                     continue
-                key = receipt["cache_key"]
-                _cache.pin(key)
-                pinned.append(key)
                 receipt.update(
                     {
                         "index": idx,
                         "id": item.id,
-                        "audio_url": f"/v1/audio/cache/{key}",
+                        "audio_url": f"/v1/audio/cache/{receipt['cache_key']}",
                         "mime": FORMAT_MIME[fmt],
                     }
                 )
