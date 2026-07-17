@@ -159,6 +159,15 @@ cache without a manual step. The store sits behind a small `CacheStore`
 interface (`LocalLRUCache` today) so an org-global blob store can slot in later
 without touching the request path.
 
+**Batch durability.** A batch returns `audio_url` references rather than inline
+bytes (so a 200-item chapter isn't buffered in memory). To keep those URLs from
+404-ing under LRU pressure, every key a batch produces is **pinned against
+eviction for the life of that NDJSON response** and released when the stream
+finishes. Guarantee: a batch item's audio stays reachable from when its receipt
+is emitted until the stream completes — **fetch promptly after the stream
+ends.** (Pinning is refcounted, so concurrent batches and repeated items are
+safe; eviction skips pinned keys and still evicts the rest.)
+
 ## Concurrency / backpressure
 
 `TTS_SLOTS` (default 2) bounds concurrent synthesis via a semaphore and is

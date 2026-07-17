@@ -229,9 +229,26 @@ class LocalLRUCache(CacheStore):
         self.max_bytes = max_bytes
         self._lock = threading.Lock()
         self._entries: "OrderedDict[str, int]" = OrderedDict()
+        # Refcount of keys pinned against eviction while an in-flight batch still
+        # needs them reachable via GET /v1/audio/cache/<key>. Refcounted (not a
+        # set) because the same key can be pinned by concurrent batches or by a
+        # duplicate item within one batch. See pin()/unpin()/_evict_locked().
+        self._pinned: dict[str, int] = {}
         self._total = 0
         os.makedirs(self.dir, exist_ok=True)
         self._scan()
+
+    def pin(self, key: str) -> None:
+        with self._lock:
+            self._pinned[key] = self._pinned.get(key, 0) + 1
+
+    def unpin(self, key: str) -> None:
+        with self._lock:
+            n = self._pinned.get(key, 0) - 1
+            if n <= 0:
+                self._pinned.pop(key, None)
+            else:
+                self._pinned[key] = n
 
     def _path(self, key: str) -> str:
         return os.path.join(self.dir, key)
@@ -295,12 +312,23 @@ class LocalLRUCache(CacheStore):
             return None
 
     def _evict_locked(self) -> None:
+        # Evict oldest-first, but skip keys pinned by an in-flight batch so a URL
+        # just handed out in an NDJSON receipt can't 404 before the client
+        # fetches it. Iterate in LRU order and stop when nothing evictable
+        # remains (every remaining entry pinned) so we never spin over-cap.
         while self._total > self.max_bytes and len(self._entries) > 1:
-            old_key, size = self._entries.popitem(last=False)
+            victim = None
+            for key in self._entries:  # oldest first
+                if key not in self._pinned:
+                    victim = key
+                    break
+            if victim is None:
+                break  # all remaining entries pinned; can't free space now
+            size = self._entries.pop(victim)
             self._total -= size
             for suffix in ("", ".dur"):
                 try:
-                    os.remove(self._path(old_key) + suffix)
+                    os.remove(self._path(victim) + suffix)
                 except FileNotFoundError:
                     pass
 
@@ -543,32 +571,48 @@ async def speech_batch(req: BatchRequest):
         raise HTTPException(status_code=400, detail=f"unsupported format '{fmt}'")
 
     async def gen():
-        for idx, item in enumerate(req.items):
-            # Fan-out partial-success: a per-item failure (over-cap input,
-            # disk-full on cache write, a CUDA OOM/torch error, missing ffmpeg)
-            # emits an error line and the batch continues. Any native exception
-            # would otherwise abort the whole stream mid-flight -- after a 200 OK
-            # -- silently dropping every remaining item.
-            try:
-                _, receipt = await synth_cached(item.input, voice, fmt, req.speed)
-            except HTTPException as e:
-                yield json.dumps({"index": idx, "id": item.id, "error": e.detail}) + "\n"
-                continue
-            except Exception as e:  # noqa: BLE001 -- one bad item must not kill the stream
-                logger.exception("batch item %d (id=%s) failed", idx, item.id)
-                yield json.dumps(
-                    {"index": idx, "id": item.id, "error": f"{type(e).__name__}: {e}"}
-                ) + "\n"
-                continue
-            receipt.update(
-                {
-                    "index": idx,
-                    "id": item.id,
-                    "audio_url": f"/v1/audio/cache/{receipt['cache_key']}",
-                    "mime": FORMAT_MIME[fmt],
-                }
-            )
-            yield json.dumps(receipt) + "\n"
+        # Batch returns audio_url references (not inline bytes) so a 200-item
+        # chapter isn't buffered in memory. But the LRU cap could evict an early
+        # item before the client fetches its URL -- 404-ing a link just handed
+        # out. So pin each produced key against eviction for the life of this
+        # response and release them in the finally (covers client disconnect:
+        # GeneratorExit still runs finally). Guarantee: a batch key stays
+        # reachable from when its receipt is emitted until the NDJSON stream
+        # finishes; fetch promptly after the stream completes.
+        pinned: list[str] = []
+        try:
+            for idx, item in enumerate(req.items):
+                # Fan-out partial-success: a per-item failure (over-cap input,
+                # disk-full on cache write, a CUDA OOM/torch error, missing
+                # ffmpeg) emits an error line and the batch continues. Any native
+                # exception would otherwise abort the whole stream mid-flight --
+                # after a 200 OK -- silently dropping every remaining item.
+                try:
+                    _, receipt = await synth_cached(item.input, voice, fmt, req.speed)
+                except HTTPException as e:
+                    yield json.dumps({"index": idx, "id": item.id, "error": e.detail}) + "\n"
+                    continue
+                except Exception as e:  # noqa: BLE001 -- one bad item must not kill the stream
+                    logger.exception("batch item %d (id=%s) failed", idx, item.id)
+                    yield json.dumps(
+                        {"index": idx, "id": item.id, "error": f"{type(e).__name__}: {e}"}
+                    ) + "\n"
+                    continue
+                key = receipt["cache_key"]
+                _cache.pin(key)
+                pinned.append(key)
+                receipt.update(
+                    {
+                        "index": idx,
+                        "id": item.id,
+                        "audio_url": f"/v1/audio/cache/{key}",
+                        "mime": FORMAT_MIME[fmt],
+                    }
+                )
+                yield json.dumps(receipt) + "\n"
+        finally:
+            for key in pinned:
+                _cache.unpin(key)
 
     return StreamingResponse(gen(), media_type="application/x-ndjson")
 
