@@ -178,10 +178,26 @@ def _synthesize(text: str, voice: str, speed: float, lang: str) -> np.ndarray:
 # --- Content-addressed cache ----------------------------------------------
 
 
+def _format_bitrate(fmt: str) -> str:
+    """The encoder bitrate that will be baked into the audio for this format.
+
+    Part of the cache key so that changing a bitrate env var busts stale audio
+    encoded at the old rate rather than serving it.
+    """
+    if fmt == "opus":
+        return OPUS_BITRATE
+    if fmt == "mp3":
+        return MP3_BITRATE
+    return ""
+
+
 def cache_key(text: str, voice: str, fmt: str, speed: float, lang: str) -> str:
-    """Stable key over (model+service version, voice, format, speed, lang, text)."""
+    """Stable key over (model+service version, voice, format, bitrate, speed, lang, text)."""
     h = hashlib.sha256()
-    h.update(f"{model_version()}\0{_SERVICE_VERSION}\0{voice}\0{fmt}\0{speed:.3f}\0{lang}\0".encode())
+    h.update(
+        f"{model_version()}\0{_SERVICE_VERSION}\0{voice}\0{fmt}\0{_format_bitrate(fmt)}"
+        f"\0{speed:.3f}\0{lang}\0".encode()
+    )
     h.update(text.encode("utf-8"))
     return h.hexdigest()
 
@@ -191,7 +207,8 @@ class CacheStore:
     org-global blob store can implement the same three methods later."""
 
     def get(self, key: str) -> bytes | None: ...
-    def put(self, key: str, data: bytes) -> None: ...
+    def put(self, key: str, data: bytes, seconds: float) -> None: ...
+    def duration(self, key: str) -> float | None: ...
     def bust(self, key: str | None) -> int: ...
 
 
@@ -217,6 +234,8 @@ class LocalLRUCache(CacheStore):
     def _scan(self) -> None:
         items = []
         for name in os.listdir(self.dir):
+            if name.endswith(".dur"):
+                continue  # sidecar duration files are not cache entries
             p = os.path.join(self.dir, name)
             if os.path.isfile(p):
                 st = os.stat(p)
@@ -241,7 +260,7 @@ class LocalLRUCache(CacheStore):
             os.utime(p, None)
             return data
 
-    def put(self, key: str, data: bytes) -> None:
+    def put(self, key: str, data: bytes, seconds: float) -> None:
         with self._lock:
             if key in self._entries:
                 self._entries.move_to_end(key)
@@ -251,18 +270,34 @@ class LocalLRUCache(CacheStore):
             with open(tmp, "wb") as f:
                 f.write(data)
             os.replace(tmp, p)
+            # Persist the exact audio duration alongside the blob so a cache hit
+            # reports real seconds without re-probing (ffprobe-from-pipe is
+            # unreliable for Ogg/Opus and would report 0.0).
+            try:
+                with open(p + ".dur", "w") as f:
+                    f.write(f"{seconds:.3f}")
+            except OSError:
+                pass
             self._entries[key] = len(data)
             self._total += len(data)
             self._evict_locked()
+
+    def duration(self, key: str) -> float | None:
+        try:
+            with open(self._path(key) + ".dur") as f:
+                return float(f.read().strip())
+        except (OSError, ValueError):
+            return None
 
     def _evict_locked(self) -> None:
         while self._total > self.max_bytes and len(self._entries) > 1:
             old_key, size = self._entries.popitem(last=False)
             self._total -= size
-            try:
-                os.remove(self._path(old_key))
-            except FileNotFoundError:
-                pass
+            for suffix in ("", ".dur"):
+                try:
+                    os.remove(self._path(old_key) + suffix)
+                except FileNotFoundError:
+                    pass
 
     def bust(self, key: str | None) -> int:
         with self._lock:
@@ -282,10 +317,11 @@ class LocalLRUCache(CacheStore):
             if size is None:
                 return 0
             self._total -= size
-            try:
-                os.remove(self._path(key))
-            except FileNotFoundError:
-                pass
+            for suffix in ("", ".dur"):
+                try:
+                    os.remove(self._path(key) + suffix)
+                except FileNotFoundError:
+                    pass
             return 1
 
     def stats(self) -> dict:
@@ -355,7 +391,9 @@ async def synth_cached(text: str, voice: str, fmt: str, speed: float) -> tuple[b
 
     cached = _cache.get(key)
     if cached is not None:
-        seconds = _duration_of(cached, fmt)
+        seconds = _cache.duration(key)
+        if seconds is None:
+            seconds = _duration_of(cached, fmt)
         return cached, _receipt(text, voice, fmt, seconds, True, key)
 
     async with _slots:
@@ -363,13 +401,15 @@ async def synth_cached(text: str, voice: str, fmt: str, speed: float) -> tuple[b
         # populated the cache while we waited for a slot.
         cached = _cache.get(key)
         if cached is not None:
-            seconds = _duration_of(cached, fmt)
+            seconds = _cache.duration(key)
+            if seconds is None:
+                seconds = _duration_of(cached, fmt)
             return cached, _receipt(text, voice, fmt, seconds, True, key)
         samples = await asyncio.to_thread(_synthesize, text, voice, speed, lang)
         data = await asyncio.to_thread(_encode, samples, fmt)
 
     seconds = round(len(samples) / SAMPLE_RATE, 3)
-    _cache.put(key, data)
+    _cache.put(key, data, seconds)
     return data, _receipt(text, voice, fmt, seconds, False, key)
 
 
@@ -519,8 +559,8 @@ async def cache_fetch(key: str):
     mime = "application/octet-stream"
     if data[:4] == b"OggS":
         mime = "audio/ogg"
-    elif data[:3] == b"ID3" or data[:2] == b"\xff\xfb":
-        mime = "audio/mpeg"
+    elif data[:3] == b"ID3" or (len(data) >= 2 and data[0] == 0xFF and (data[1] & 0xE0) == 0xE0):
+        mime = "audio/mpeg"  # ID3 tag or any MPEG-audio frame sync (0xFFEx/Fx)
     elif data[:4] == b"RIFF":
         mime = "audio/wav"
     return Response(content=data, media_type=mime)
