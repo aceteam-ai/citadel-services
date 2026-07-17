@@ -531,19 +531,31 @@ async def speech_batch(req: BatchRequest):
 
     async def gen():
         for idx, item in enumerate(req.items):
+            # Fan-out partial-success: a per-item failure (over-cap input,
+            # disk-full on cache write, a CUDA OOM/torch error, missing ffmpeg)
+            # emits an error line and the batch continues. Any native exception
+            # would otherwise abort the whole stream mid-flight -- after a 200 OK
+            # -- silently dropping every remaining item.
             try:
                 _, receipt = await synth_cached(item.input, voice, fmt, req.speed)
-                receipt.update(
-                    {
-                        "index": idx,
-                        "id": item.id,
-                        "audio_url": f"/v1/audio/cache/{receipt['cache_key']}",
-                        "mime": FORMAT_MIME[fmt],
-                    }
-                )
-                yield json.dumps(receipt) + "\n"
             except HTTPException as e:
                 yield json.dumps({"index": idx, "id": item.id, "error": e.detail}) + "\n"
+                continue
+            except Exception as e:  # noqa: BLE001 -- one bad item must not kill the stream
+                logger.exception("batch item %d (id=%s) failed", idx, item.id)
+                yield json.dumps(
+                    {"index": idx, "id": item.id, "error": f"{type(e).__name__}: {e}"}
+                ) + "\n"
+                continue
+            receipt.update(
+                {
+                    "index": idx,
+                    "id": item.id,
+                    "audio_url": f"/v1/audio/cache/{receipt['cache_key']}",
+                    "mime": FORMAT_MIME[fmt],
+                }
+            )
+            yield json.dumps(receipt) + "\n"
 
     return StreamingResponse(gen(), media_type="application/x-ndjson")
 
