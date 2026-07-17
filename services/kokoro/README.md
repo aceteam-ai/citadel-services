@@ -185,19 +185,35 @@ items — which is the batch endpoint's intended shape anyway.
 ## GPU
 
 The default `:latest` image is **CPU-torch** so it runs on the M1 node and on
-NVIDIA nodes alike. For real GPU acceleration on an NVIDIA node:
+NVIDIA nodes alike (on CPU there). **The nvidia device reservation alone is not
+enough for acceleration** — a GPU reserved against the CPU-torch image still
+runs on CPU. For real GPU acceleration on an NVIDIA node, use the CUDA image via
+the GPU override, which builds it, runs it, and demands the GPU explicitly:
 
 ```bash
-# Build a CUDA image variant:
-docker build --build-arg TORCH_BACKEND=cu124 -t ghcr.io/aceteam-ai/kokoro-service:cuda ./build
-# Run with the GPU device exposed:
-docker compose -f compose.yml -f compose.gpu.yml up -d
+docker compose -f compose.yml -f compose.gpu.yml build   # builds the :cuda image (TORCH_BACKEND=cu124)
+docker compose -f compose.yml -f compose.gpu.yml up -d    # runs it with the GPU reserved
 ```
 
-`compose.gpu.yml` adds the nvidia device reservation (same mechanism as
-`ollama`/`vllm`); the server picks CUDA automatically at runtime
-(`KOKORO_DEVICE=auto`). CPU synthesis is already ~real-time for Kokoro-82M, so
-GPU is a throughput optimization, not a requirement.
+`compose.gpu.yml` overrides three things vs the CPU compose: `image:` → the
+`:cuda` tag, `build.args.TORCH_BACKEND=cu124` (uv installs the CUDA torch
+wheel), and `KOKORO_DEVICE=cuda`. That last one is deliberate: the server then
+**fails loudly at startup** if CUDA isn't actually usable — either because the
+image is the CPU-torch build (`torch.version.cuda is None`) or because no GPU is
+visible to the container (missing nvidia runtime / driver / toolkit) — instead
+of silently running on CPU. `KOKORO_DEVICE=auto` (the CPU compose default) still
+picks CUDA when a GPU happens to be visible and falls back to CPU otherwise.
+`GET /health` reports `device` and `torch_cuda_build` (the built backend, `null`
+on a CPU image) so you can confirm which path is live.
+
+CPU synthesis is already ~real-time for Kokoro-82M, so GPU is a throughput
+optimization, not a requirement.
+
+Or build the CUDA image by hand (equivalent to the compose build):
+
+```bash
+docker build --build-arg TORCH_BACKEND=cu124 -t ghcr.io/aceteam-ai/kokoro-service:cuda ./build
+```
 
 ## Fabric seam (aligning the two sides)
 

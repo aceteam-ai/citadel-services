@@ -1,15 +1,20 @@
 # GPU override for the Kokoro TTS service. Layer it on top of compose.yml on an
 # NVIDIA node:
 #
+#     docker compose -f compose.yml -f compose.gpu.yml build   # builds the :cuda image
 #     docker compose -f compose.yml -f compose.gpu.yml up -d
 #
-# This ONLY exposes the GPU to the container (the nvidia runtime device
-# reservation, same mechanism ollama/vllm use). The server already selects CUDA
-# at runtime when a GPU is visible (KOKORO_DEVICE=auto), so no other change is
-# needed. Use a CUDA-built image for real acceleration:
-#     docker build --build-arg TORCH_BACKEND=cu124 -t ghcr.io/aceteam-ai/kokoro-service:cuda ./build
-# (the default :latest image is CPU-torch and will run on CPU even with a GPU
-# reserved). See README "GPU".
+# This override does three things the CPU compose does NOT, all of which are
+# required for real acceleration (the device reservation alone is not enough --
+# the base image ships CPU-torch and would run on CPU even with a GPU reserved):
+#
+#   1. `image:` -> the CUDA-tagged image (:cuda), so up/pull use the GPU build.
+#   2. `build.args.TORCH_BACKEND=cu124` -> `... build` compiles that image with
+#      the CUDA torch wheel (uv reads UV_TORCH_BACKEND from this arg).
+#   3. `KOKORO_DEVICE=cuda` -> demand the GPU explicitly. The server then fails
+#      loudly at startup if CUDA isn't actually usable (CPU-only build, or no GPU
+#      visible to the container) instead of silently falling back to CPU. Same
+#      nvidia device-reservation mechanism ollama/vllm use.
 #
 # citadel note: `citadel module install` runs a bare `docker compose up` on
 # compose.yml only, so wiring this override into the citadel-managed GPU path is
@@ -17,6 +22,13 @@
 # "Fabric seam".
 services:
   kokoro:
+    image: ghcr.io/aceteam-ai/kokoro-service:cuda
+    build:
+      context: ./build
+      args:
+        TORCH_BACKEND: cu124
+    environment:
+      - KOKORO_DEVICE=cuda
     deploy:
       resources:
         reservations:

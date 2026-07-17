@@ -6,13 +6,16 @@
 # jasonsun.org book narration (1,071 EN paragraphs) through this service with
 # per-item ACET receipts instead of the current local script.
 #
-# CPU by default: this is the SAME image everywhere. Kokoro-82M is small and
-# roughly real-time on CPU, so it runs on the org's M1 node with no GPU. For an
-# NVIDIA node, layer the GPU override (adds the nvidia device reservation) and
-# use a CUDA-built image:
+# CPU by default: this base image ships CPU-torch, so it runs on the org's M1
+# node (Kokoro-82M is small and ~real-time on CPU) AND on an NVIDIA node -- but
+# on CPU there. For real GPU acceleration, layer compose.gpu.yml, which builds
+# and runs a CUDA-torch image (:cuda) and demands the GPU explicitly:
+#     docker compose -f compose.yml -f compose.gpu.yml build
 #     docker compose -f compose.yml -f compose.gpu.yml up -d
-# The server auto-selects CUDA at runtime when a GPU is visible
-# (KOKORO_DEVICE=auto), so the override only needs to expose the device.
+# The device reservation alone is NOT enough: a GPU reserved against the
+# CPU-torch base image still runs on CPU. compose.gpu.yml overrides the image
+# (:cuda), the build arg (TORCH_BACKEND=cu124), and KOKORO_DEVICE=cuda so the
+# server fails loudly if CUDA isn't actually usable rather than silent-CPU.
 #
 # Host port: the container serves :8080. citadel publishes it on host 8210 via
 # CITADEL_TTS_HOST_PORT (the NEXT free slot in citadel-cli's services/ports.go

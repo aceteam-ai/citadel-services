@@ -111,6 +111,7 @@ def lang_for_voice(voice: str) -> str:
 
 _model: Any = None
 _device = "cpu"
+_torch_cuda_build: str | None = None  # torch.version.cuda; None on a CPU build
 _pipelines: dict[str, Any] = {}  # lang_code -> KPipeline (shares the KModel)
 _pipeline_lock = threading.Lock()
 _slots: asyncio.Semaphore | None = None
@@ -486,11 +487,39 @@ def _receipt(text: str, voice: str, fmt: str, seconds: float, cache_hit: bool, k
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    global _model, _device, _slots, _cache
+    global _model, _device, _slots, _cache, _torch_cuda_build
     import torch
     from kokoro import KModel
 
-    if DEVICE_PREF == "cuda" or (DEVICE_PREF == "auto" and torch.cuda.is_available()):
+    _torch_cuda_build = torch.version.cuda
+    if DEVICE_PREF == "cuda":
+        # Explicit cuda: fail loudly rather than silently running on CPU. The two
+        # failure modes are distinguishable and get different remedies:
+        #  - torch.version.cuda is None -> this is the CPU-torch build (the
+        #    default :latest image). No amount of GPU exposure helps; you need
+        #    the cuda-built image.
+        #  - torch.version.cuda set but is_available() False -> a cuda build with
+        #    no GPU visible to the container (missing nvidia runtime / device
+        #    reservation / host toolkit).
+        if not torch.cuda.is_available():
+            if torch.version.cuda is None:
+                raise RuntimeError(
+                    "KOKORO_DEVICE=cuda but this image was built with CPU-only torch "
+                    "(torch.version.cuda is None). Build/run the CUDA image: "
+                    "docker build --build-arg TORCH_BACKEND=cu124 -t "
+                    "ghcr.io/aceteam-ai/kokoro-service:cuda ./build  (or "
+                    "docker compose -f compose.yml -f compose.gpu.yml up -d, which "
+                    "references the :cuda tag). Set KOKORO_DEVICE=cpu to run on CPU."
+                )
+            raise RuntimeError(
+                f"KOKORO_DEVICE=cuda and this is a CUDA torch build "
+                f"(torch.version.cuda={torch.version.cuda}), but no GPU is visible to "
+                "the container. Expose it with the nvidia runtime "
+                "(docker compose -f compose.yml -f compose.gpu.yml up -d) and confirm "
+                "the host nvidia driver + container toolkit are installed."
+            )
+        _device = "cuda"
+    elif DEVICE_PREF == "auto" and torch.cuda.is_available():
         _device = "cuda"
     else:
         _device = "cpu"
@@ -513,6 +542,7 @@ async def health() -> dict:
         "model_loaded": _model is not None,
         "model_version": model_version(),
         "device": _device,
+        "torch_cuda_build": _torch_cuda_build,  # None = CPU-torch image build
         "slots": TTS_SLOTS,
     }
 
