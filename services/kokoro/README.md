@@ -166,6 +166,13 @@ advertised on `/health` and `/info`. Requests beyond the slot count **queue**
 (await a slot) rather than piling on and OOMing the node — the fabric can read
 the advertised capacity to schedule/shed load.
 
+Slots bound *concurrency*; a single oversized `input` can OOM the node on its
+own regardless of slots, so each item is also capped at
+`KOKORO_MAX_INPUT_CHARS` characters (default 5000). An over-cap single request
+gets a `413`; in a batch it becomes a per-item error line and the rest of the
+chapter still synthesizes. Split long text into a batch of paragraph-sized
+items — which is the batch endpoint's intended shape anyway.
+
 ## GPU
 
 The default `:latest` image is **CPU-torch** so it runs on the M1 node and on
@@ -239,6 +246,7 @@ approves the final number at review.
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `TTS_SLOTS` | `2` | Concurrent synthesis slots (advertised for backpressure). |
+| `KOKORO_MAX_INPUT_CHARS` | `5000` | Max characters per item; over-cap → `413` (per-item error line in a batch). |
 | `KOKORO_DEVICE` | `auto` | `auto` (GPU when present) / `cpu` / `cuda`. |
 | `KOKORO_DEFAULT_VOICE` | `am_michael` | Default voice. |
 | `KOKORO_DEFAULT_FORMAT` | `opus` | `opus` or `mp3`. |

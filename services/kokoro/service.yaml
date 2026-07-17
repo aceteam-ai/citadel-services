@@ -66,6 +66,14 @@ config:
     description: "Inference device: auto (GPU when present, else CPU), cpu, or cuda."
     default: "auto"
     required: false
+  - name: KOKORO_MAX_INPUT_CHARS
+    description: >-
+      Max characters per synthesized item. The TTS_SLOTS semaphore bounds
+      concurrent synthesis, but a single oversized input can OOM the node on its
+      own; over-cap requests get a 413 (per-item error line in a batch). Split
+      long text into a batch of items.
+    default: 5000
+    required: false
   - name: KOKORO_DEFAULT_VOICE
     description: >-
       Default voice when a request omits one. Full Kokoro EN set (am_michael et

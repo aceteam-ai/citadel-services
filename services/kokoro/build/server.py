@@ -61,6 +61,11 @@ DEFAULT_VOICE = os.environ.get("KOKORO_DEFAULT_VOICE", "am_michael")
 DEFAULT_FORMAT = os.environ.get("KOKORO_DEFAULT_FORMAT", "opus")
 DEVICE_PREF = os.environ.get("KOKORO_DEVICE", "auto")  # auto|cpu|cuda
 TTS_SLOTS = max(1, int(os.environ.get("TTS_SLOTS", "2")))
+# Hard cap on characters per synthesized item. The TTS_SLOTS semaphore bounds
+# *concurrent* synthesis, but a single oversized `input` can still OOM the node
+# on its own regardless of slots, so cap each item's length. Over-cap requests
+# get a clear 413; in a batch the per-item error line lets the rest proceed.
+MAX_INPUT_CHARS = max(1, int(os.environ.get("KOKORO_MAX_INPUT_CHARS", "5000")))
 CACHE_DIR = os.environ.get("KOKORO_CACHE_DIR", "/data/cache")
 CACHE_MAX_GB = float(os.environ.get("KOKORO_CACHE_MAX_GB", "5"))
 OPUS_BITRATE = os.environ.get("KOKORO_OPUS_BITRATE", "32k")
@@ -384,6 +389,14 @@ class BatchRequest(BaseModel):
 async def synth_cached(text: str, voice: str, fmt: str, speed: float) -> tuple[bytes, dict]:
     """Return (audio_bytes, receipt). Serves from cache when possible."""
     assert _slots is not None and _cache is not None
+    if len(text) > MAX_INPUT_CHARS:
+        raise HTTPException(
+            status_code=413,
+            detail=(
+                f"input is {len(text)} chars; max is {MAX_INPUT_CHARS} "
+                f"(KOKORO_MAX_INPUT_CHARS). Split long text into a batch of items."
+            ),
+        )
     lang = lang_for_voice(voice)
     if fmt not in FORMAT_MIME:
         raise HTTPException(status_code=400, detail=f"unsupported format '{fmt}'")
@@ -492,7 +505,7 @@ async def info() -> dict:
         "service_version": _SERVICE_VERSION,
         "model_version": model_version(),
         "device": _device,
-        "capacity": {"slots": TTS_SLOTS},
+        "capacity": {"slots": TTS_SLOTS, "max_input_chars": MAX_INPUT_CHARS},
         "default_voice": DEFAULT_VOICE,
         "default_format": DEFAULT_FORMAT,
         "formats": list(FORMAT_MIME.keys()),
