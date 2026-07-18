@@ -1,0 +1,65 @@
+# Catalog compose for Kokoro text-to-speech (Kokoro-82M, Apache-2.0).
+#
+# Backs the fabric `tts` serving engine (aceteam ServingEngine.TTS / the
+# "tts-speech" provisioning template) -- the synthesis counterpart to the
+# whisper-service that backs `transcribe`. First dogfood: regenerating the
+# jasonsun.org book narration (1,071 EN paragraphs) through this service with
+# per-item ACET receipts instead of the current local script.
+#
+# CPU by default: this base image ships CPU-torch, so it runs on the org's M1
+# node (Kokoro-82M is small and ~real-time on CPU) AND on an NVIDIA node -- but
+# on CPU there. For real GPU acceleration, layer compose.gpu.yml, which builds
+# and runs a CUDA-torch image (:cuda) and demands the GPU explicitly:
+#     docker compose -f compose.yml -f compose.gpu.yml build
+#     docker compose -f compose.yml -f compose.gpu.yml up -d
+# The device reservation alone is NOT enough: a GPU reserved against the
+# CPU-torch base image still runs on CPU. compose.gpu.yml overrides the image
+# (:cuda), the build arg (TORCH_BACKEND=cu124), and KOKORO_DEVICE=cuda so the
+# server fails loudly if CUDA isn't actually usable rather than silent-CPU.
+#
+# Host port: the container serves :8080. citadel publishes it on host 8210 via
+# CITADEL_TTS_HOST_PORT (the NEXT free slot in citadel-cli's services/ports.go
+# 8200+ block, after gotenberg's 8209 -- registering it there is a follow-up PR,
+# see README "Fabric seam"). A standalone `docker compose up` defaults the host
+# publish to 8080.
+#
+# Loopback-only publish (127.0.0.1), deliberately: the only consumer is the
+# co-located citadel worker dispatching synthesis on this same node (the
+# node-side handler analog of TranscribeAudioHandler), and the service has no
+# auth of its own, so it must not be reachable off-host. citadel-cli's health
+# probe always dials 127.0.0.1, so this does not affect health probing.
+services:
+  kokoro:
+    image: ghcr.io/aceteam-ai/kokoro-service:latest
+    build:
+      context: ./build
+    container_name: citadel-kokoro
+    ports:
+      - "127.0.0.1:${CITADEL_TTS_HOST_PORT:-8080}:8080"
+    environment:
+      - PORT=8080
+      - KOKORO_DEVICE=${KOKORO_DEVICE:-auto}
+      - TTS_SLOTS=${TTS_SLOTS:-2}
+      - KOKORO_MAX_INPUT_CHARS=${KOKORO_MAX_INPUT_CHARS:-5000}
+      - KOKORO_DEFAULT_VOICE=${KOKORO_DEFAULT_VOICE:-am_michael}
+      - KOKORO_DEFAULT_FORMAT=${KOKORO_DEFAULT_FORMAT:-opus}
+      - KOKORO_CACHE_MAX_GB=${KOKORO_CACHE_MAX_GB:-5}
+      - KOKORO_OPUS_BITRATE=${KOKORO_OPUS_BITRATE:-32k}
+      - KOKORO_MP3_BITRATE=${KOKORO_MP3_BITRATE:-64k}
+    volumes:
+      # HuggingFace cache: the Kokoro-82M weights + voices download here once and
+      # persist across restarts (shared with other HF-based services).
+      - ~/citadel-cache/huggingface:/root/.cache/huggingface
+      # Content-addressed audio cache (node-local, LRU-capped).
+      - ~/citadel-cache/kokoro:/data
+    restart: unless-stopped
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import urllib.request,json,sys; d=json.load(urllib.request.urlopen('http://localhost:8080/health')); sys.exit(0 if d.get('model_loaded') else 1)"
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 180s

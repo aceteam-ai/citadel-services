@@ -1,0 +1,142 @@
+# Citadel module manifest for the Kokoro text-to-speech service.
+#
+# This is the provider for the fabric `tts` serving engine (aceteam
+# ServingEngine.TTS in python-backend/models/serving_engine.py and the
+# "tts-speech" provisioning template) -- the synthesis counterpart to
+# whisper-service, which backs `transcribe`. The catalog module is named for its
+# implementation (kokoro), the same convention as whisper-service/gliner2; the
+# generic engine it advertises is `tts` (node_tags below + /info's "engine"
+# field).
+#
+# Fabric seam (see README): the aceteam side already defines the `tts` engine
+# and a "tts-speech" template, but that template is a Coqui/XTTS placeholder
+# (image ghcr.io/coqui-ai/tts, port 5002, /api/tts). Per that model's own
+# docstring, "the node's citadel.yaml compose is authoritative on the real
+# image, entrypoint, and host ports; on divergence, the node compose is
+# authoritative." So this module is the real backing image, and lining the two
+# sides up (point the template at kokoro-service / 8210 / OpenAI-compatible
+# /v1/audio/speech, register CITADEL_TTS_HOST_PORT in citadel-cli, add the
+# node-side synthesis handler) is a set of follow-ups tracked in the PR.
+#
+# Host port: the container serves :8080. citadel publishes it on host 8210 via
+# CITADEL_TTS_HOST_PORT (next free slot in citadel-cli services/ports.go after
+# gotenberg's 8209). A standalone `docker compose up` defaults the host publish
+# to 8080. Published to 127.0.0.1 ONLY (compose.yml) -- the sole consumer is the
+# co-located citadel worker and the service has no auth of its own.
+schema_version: 2
+name: kokoro
+version: "0.1.0"
+description: >-
+  Kokoro text-to-speech (Kokoro-82M, Apache-2.0): OpenAI-compatible speech
+  synthesis on your own node, English + Mandarin voices, opus/mp3 output,
+  content-addressed cache and per-item usage receipts. Backs the fabric `tts`
+  serving engine. Runs on CPU (M1) or GPU (3090).
+category: inference
+author: AceTeam
+license: Apache-2.0
+homepage: https://github.com/hexgrad/kokoro
+
+requires:
+  # CPU-first: Kokoro-82M is small and roughly real-time on CPU (the org's M1
+  # node runs it with no GPU). A GPU accelerates it but is not required; layer
+  # compose.gpu.yml + a CUDA-built image for NVIDIA nodes.
+  gpu: false
+  arch: [amd64, arm64]
+
+ports:
+  # Container serves :8080; citadel publishes it on host 8210 via
+  # CITADEL_TTS_HOST_PORT (services/ports.go follow-up). A standalone
+  # `docker compose up` defaults the host publish to 8080. Loopback only.
+  - host: 8210
+    container: 8080
+    protocol: tcp
+    description: >-
+      Kokoro TTS HTTP API, loopback only (POST /v1/audio/speech,
+      POST /v1/audio/speech/batch, GET /info, GET /health,
+      POST /v1/audio/cache/bust)
+
+config:
+  - name: TTS_SLOTS
+    description: >-
+      Concurrent synthesis slots. Advertised on /health and /info for fabric
+      backpressure; requests beyond this queue rather than OOMing the node.
+    default: 2
+    required: false
+  - name: KOKORO_DEVICE
+    description: "Inference device: auto (GPU when present, else CPU), cpu, or cuda."
+    default: "auto"
+    required: false
+  - name: KOKORO_MAX_INPUT_CHARS
+    description: >-
+      Max characters per synthesized item. The TTS_SLOTS semaphore bounds
+      concurrent synthesis, but a single oversized input can OOM the node on its
+      own; over-cap requests get a 413 (per-item error line in a batch). Split
+      long text into a batch of items.
+    default: 5000
+    required: false
+  - name: KOKORO_DEFAULT_VOICE
+    description: >-
+      Default voice when a request omits one. Full Kokoro EN set (am_michael et
+      al) + Mandarin (zf_/zm_) available per request; see GET /info.
+    default: "am_michael"
+    required: false
+  - name: KOKORO_DEFAULT_FORMAT
+    description: "Default output format: opus (default) or mp3."
+    default: "opus"
+    required: false
+  - name: KOKORO_CACHE_MAX_GB
+    description: >-
+      LRU cap (GB) for the node-local content-addressed audio cache under the
+      data volume. Oldest entries are evicted past this size.
+    default: 5
+    required: false
+  - name: KOKORO_OPUS_BITRATE
+    description: "Opus bitrate (speech-tuned; ~32-48k mono is plenty for narration)."
+    default: "32k"
+    required: false
+  - name: KOKORO_MP3_BITRATE
+    description: "MP3 bitrate for the Safari-compatible fallback format."
+    default: "64k"
+    required: false
+
+health_check:
+  # citadel-cli's health probe always dials 127.0.0.1:<host port>, so this is
+  # the loopback host-reachable port (matches ports[].host), not in-container
+  # 8080 -- same convention as gotenberg/meeting.
+  endpoint: /health
+  port: 8210
+  interval: "30s"
+  timeout: "10s"
+  retries: 5
+
+volumes:
+  - name: huggingface-cache
+    host: ~/citadel-cache/huggingface
+    container: /root/.cache/huggingface
+    description: HuggingFace cache; Kokoro-82M weights + voices download here once.
+  - name: kokoro-data
+    host: ~/citadel-cache/kokoro
+    container: /data
+    description: Content-addressed audio cache (LRU-capped) + service data.
+
+# Routing tags: make the node routable for fabric `tts` synthesis jobs. Mirrors
+# gliner2's extraction:gliner2 / model:* routing-tag pattern; declared here so
+# they merge into the node manifest regardless of module name.
+node_tags:
+  - engine:tts
+  - tts:kokoro
+  - model:kokoro-82m
+
+tags:
+  - tts
+  - text-to-speech
+  - speech-synthesis
+  - kokoro
+  - audio
+  - openai-compatible
+  - english
+  - mandarin
+  - opus
+  - mp3
+  - cpu
+  - gpu
