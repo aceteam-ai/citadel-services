@@ -63,3 +63,9 @@ services:
     gpu: optional
     description: "Kokoro text-to-speech (Kokoro-82M): OpenAI-compatible synthesis, EN + ZH voices, opus/mp3, content-addressed cache + per-item receipts; backs the fabric tts engine (#11)"
     tags: [tts, text-to-speech, speech-synthesis, kokoro, audio, openai-compatible, english, mandarin, opus, mp3, cpu, gpu]
+  - name: nvr
+    version: "0.1.0"
+    category: media
+    gpu: "no"
+    description: "Self-hosted camera NVR: docker-wyze-bridge (Wyze TUTK->RTSP) + Frigate (continuous recording + local object detection); local/NAS/volume storage, Intel-iGPU OpenVINO detection (citadel-cli#597)"
+    tags: [nvr, camera, frigate, wyze, surveillance, recording, object-detection, openvino, media, cpu]
