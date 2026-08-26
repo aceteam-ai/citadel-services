@@ -39,6 +39,12 @@ services:
     gpu: "no"
     description: "Headless Claude Code agent-runtime (BYOC: agent + model on your own node via the fabric proxy)"
     tags: [agent, claude-code, byoc]
+  - name: hermes
+    version: "0.1.0"
+    category: agent-runtime
+    gpu: "no"
+    description: "Headless Hermes Agent runtime (Nous Research, BYOC: bring your own inference provider credential)"
+    tags: [agent, hermes, byoc]
   - name: livekit
     version: "v1.13.3"
     category: media
