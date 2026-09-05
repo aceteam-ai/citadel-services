@@ -73,11 +73,19 @@ config:
     description: "Tenant display name minted by the bridge admin API (carried across updates)."
     carry: true
   # BRIDGE_PORT is the host port the bridge publishes; the provisioning flow
-  # auto-selects a free one and persists it. Non-secret, not carried (the
-  # provisioning flow is authoritative for it).
+  # auto-selects a FREE one and persists it. It MUST be carried across an
+  # update-in-place (citadel-cli#624): the node-side provisioned-service registry
+  # holds the gateway route's upstream port DURABLY (set once at provision time,
+  # never re-read from the env), so if an update reset BRIDGE_PORT to the 8080
+  # default while the registry still pointed at the previously-selected port, the
+  # container would bind 8080 while the gateway route targets the stale port ->
+  # the bridge is unreachable via the mesh gateway. `carry: true` preserves the
+  # provisioned value; the default only applies on a first install before
+  # provisioning has selected a port.
   - name: BRIDGE_PORT
-    description: "Host port the bridge REST API publishes (auto-selected during provisioning)."
+    description: "Host port the bridge REST API publishes (auto-selected during provisioning; carried across updates)."
     default: "8080"
+    carry: true
 
 health_check:
   # citadel resolves the RUNNING bridge container by compose project+service

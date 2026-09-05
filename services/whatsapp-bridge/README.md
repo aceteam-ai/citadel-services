@@ -28,7 +28,12 @@ Key declarations this manifest carries (beyond a plain catalog entry):
 - **`config[].carry: true`** — `TENANT_API_KEY` / `TENANT_ID` / `TENANT_NAME` are
   minted out of band by the bridge admin API, so they cannot be re-minted by the
   node; `carry` preserves them across an update-in-place instead of rotating the
-  platform-stored tenant key to nothing.
+  platform-stored tenant key to nothing. **`BRIDGE_PORT`** is carried too: the
+  node's provisioned-service registry holds the gateway route's upstream port
+  durably (set once at provision time, never re-read from the env), so if an
+  update reset `BRIDGE_PORT` to the `8080` default the container would bind 8080
+  while the gateway route still targeted the previously-selected port, making the
+  bridge unreachable via the mesh gateway.
 - **`health_check.compose_service: bridge`** — the real container is
   `<project>-bridge-N` (not `citadel-whatsapp-bridge`), so health is resolved via
   `docker compose -p <project> ps bridge` rather than a container name that never
