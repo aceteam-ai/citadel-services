@@ -1,0 +1,126 @@
+# Citadel catalog module manifest for the multi-tenant WhatsApp (Baileys) bridge.
+#
+# Published from aceteam-ai/citadel-cli per citadel-cli#624 Part 1 ("make the
+# WhatsApp bridge a first-class Citadel module"). This is the catalog copy that
+# `fabric_node_module_set node=<id> module=whatsapp-bridge` (a MODULE_SET job) and
+# `citadel catalog install whatsapp-bridge` resolve via catalog.LoadServiceManifest
+# -> services/whatsapp-bridge/. It mirrors internal/catalog.ServiceManifest.
+#
+# The module name is deliberately `whatsapp-bridge` == whatsapp.ServiceName so the
+# ActualState row key stays stable across the bespoke->module transition (the
+# aceteam consumer needs no row-key migration -- citadel-cli#624 sub-collision 6).
+#
+# INSTALL-AS-TRUSTED ONLY (mirrors the nvr entry's note): the bridge must be
+# installed from the first-party catalog (a trusted Tier-0 source), so the
+# `sandbox:` block below is IGNORED and this compose is authoritative. An UNTRUSTED
+# install would harden the two-container stack with a least-privilege override that
+# has not been validated against the Baileys/Postgres pair; per-service sandbox
+# scoping is a documented follow-up. The image (ghcr.io/sunapi386/whatsapp-bridge)
+# is private, so the node needs `docker login` credentials to pull it.
+schema_version: 2
+name: whatsapp-bridge
+version: "latest"
+description: >-
+  Multi-tenant WhatsApp bridge (Baileys) with a Postgres sidecar. One shared
+  bridge serves many tenants; the per-tenant X-API-Key selects the tenant. The
+  /admin/* control plane is guarded by a separate ADMIN_API_KEY the operator holds.
+category: tools
+author: AceTeam
+license: Apache-2.0
+homepage: https://github.com/aceteam-ai/citadel-cli/issues/624
+
+requires:
+  # The bridge (Node/Baileys) + Postgres are CPU-only.
+  gpu: false
+
+ports:
+  # The bridge's REST API. host BRIDGE_PORT (auto-selected free port on a real
+  # node; 8080 default) -> container 8080. Postgres publishes NO host port (it is
+  # reachable only on the module's private compose network).
+  - host: 8080
+    container: 8080
+    protocol: tcp
+    description: WhatsApp bridge REST API (admin + per-tenant)
+
+config:
+  # ADMIN_API_KEY guards the /admin/* control plane. GENERATED per node (a random
+  # secret nobody outside the node needs to type); STICKY across reconciles/updates
+  # so a container recreate never rotates it. `required` as well, so the compose
+  # `${ADMIN_API_KEY:?}` guard still fails closed if generation is ever misconfigured.
+  - name: ADMIN_API_KEY
+    description: "Admin secret for the bridge /admin/* control plane (SECRET; generated per node, sticky)."
+    required: true
+    generate: secret
+  # POSTGRES_PASSWORD is used only BETWEEN this module's own containers
+  # (bridge <-> db, both on the private compose network). GENERATED per node so no
+  # two nodes share the same well-known credential; sticky across updates.
+  - name: POSTGRES_PASSWORD
+    description: "Password for the module-local Postgres (SECRET; generated per node, sticky)."
+    required: true
+    generate: secret
+  # TENANT_* are minted OUT OF BAND by the bridge's own admin API (POST /admin/
+  # tenants) during provisioning, NOT by the node -- so they cannot be regenerated
+  # if lost. `carry: true` preserves them across an update-in-place (uninstall +
+  # reinstall deletes <name>.env), so a MODULE_SET reassignment never rotates the
+  # platform-stored tenant api_key to nothing (the 401 class citadel-cli#624 kills).
+  - name: TENANT_API_KEY
+    description: "Per-tenant data-plane API key minted by the bridge admin API (SECRET; carried, never re-minted by the node)."
+    carry: true
+  - name: TENANT_ID
+    description: "Tenant id minted by the bridge admin API (carried across updates)."
+    carry: true
+  - name: TENANT_NAME
+    description: "Tenant display name minted by the bridge admin API (carried across updates)."
+    carry: true
+  # BRIDGE_PORT is the host port the bridge publishes; the provisioning flow
+  # auto-selects a free one and persists it. Non-secret, not carried (the
+  # provisioning flow is authoritative for it).
+  - name: BRIDGE_PORT
+    description: "Host port the bridge REST API publishes (auto-selected during provisioning)."
+    default: "8080"
+
+health_check:
+  # citadel resolves the RUNNING bridge container by compose project+service
+  # (`docker compose -p <project> ps bridge`), NOT the citadel-<name> convention:
+  # this stack's real container is <project>-bridge-N (#436), which that convention
+  # never matches. compose_service is what the reconcile engine's ListInstalled
+  # reads for run-state health (citadel-cli#624 sub-collision 3) -- without it the
+  # module reports STOPPED forever and reconcile issues a redundant start each pass.
+  compose_service: bridge
+  # For a host-side readiness probe, catalog.ProbeHealth GETs
+  # http://127.0.0.1:<port><endpoint>. GET / is unauthenticated and returns 200
+  # once the bridge is up (/health requires an API key).
+  endpoint: /
+  port: 8080
+  interval: 30s
+  timeout: 5s
+  retries: 3
+
+# Gateway exposure (data only). The bridge binds an auto-selected free host port
+# that is not reachable on the tsnet stack; declaring the route lets the gateway
+# expose it under /modules/whatsapp/ with zero gateway code changes. Mirrors the
+# hardcoded defaults the bespoke provisioning flow used (cmd/whatsapp.go).
+gateway:
+  prefix: whatsapp
+  port_env: BRIDGE_PORT
+  capability: provision
+
+tags:
+  - whatsapp
+  - messaging
+  - baileys
+  - bridge
+  - multi-tenant
+
+sandbox:
+  # IGNORED for a trusted-catalog install (see the header note). Declared so an
+  # accidental untrusted install has SOME least-privilege shape rather than the
+  # strict all-drop default silently breaking the Node/Postgres pair; a real
+  # per-service sandbox is a documented follow-up.
+  writable_paths:
+    - /tmp
+    - /var/lib/postgresql/data
+  resources:
+    cpu: "2.0"
+    memory: 2g
+    pids: 2048

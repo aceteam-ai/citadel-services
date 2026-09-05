@@ -1,0 +1,72 @@
+# Citadel catalog module: whatsapp-bridge (Baileys bridge app + Postgres sidecar).
+#
+# Published from aceteam-ai/citadel-cli per citadel-cli#624 Part 1: this catalog
+# copy is what `fabric_node_module_set node=<id> module=whatsapp-bridge` (a
+# MODULE_SET job) and `citadel catalog install whatsapp-bridge` resolve via
+# catalog.LoadServiceManifest -> services/whatsapp-bridge/. It mirrors the bespoke
+# compose the `citadel whatsapp` provisioning flow deploys (sunapi386/whatsapp-bridge)
+# so the two are interchangeable across the bespoke->module transition.
+#
+# Container names are intentionally NOT hardcoded. Docker container names are
+# GLOBAL, so a fixed `container_name` collides ("The container name ... is already
+# in use") on any node that already runs a bridge stack. Instead compose derives
+# `<project>-<service>-<index>` from the project name; citadel resolves the running
+# `bridge` container via `docker compose -p <project> ps bridge` (the health_check
+# .compose_service: bridge declaration in service.yaml). See aceteam-ai/citadel-cli
+# #436 / #624 and sunapi386/whatsapp-bridge#4.
+services:
+  bridge:
+    image: ghcr.io/sunapi386/whatsapp-bridge:latest
+    restart: unless-stopped
+    ports:
+      - "${BRIDGE_PORT:-8080}:8080"
+    environment:
+      HOST: 0.0.0.0
+      PORT: 8080
+      DATABASE_URL: postgres://whatsapp:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}@db:5432/whatsapp
+      ADMIN_API_KEY: ${ADMIN_API_KEY:?ADMIN_API_KEY is required}
+      PUBLIC_URL: ${PUBLIC_URL:-}
+      # Optional per-node default egress proxy (socks5:// or http(s)://). Each
+      # Citadel node already egresses from its own mesh IP, so this is optional.
+      DEFAULT_PROXY_URL: ${DEFAULT_PROXY_URL:-}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      BAILEYS_LOG_LEVEL: ${BAILEYS_LOG_LEVEL:-warn}
+    depends_on:
+      db:
+        condition: service_healthy
+    healthcheck:
+      # GET / is unauthenticated and returns {ok:true}; /health requires an API key.
+      test:
+        [
+          "CMD",
+          "node",
+          "-e",
+          "require('http').get('http://localhost:8080/',r=>process.exit(r.statusCode===200?0:1)).on('error',()=>process.exit(1))",
+        ]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: whatsapp
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
+      POSTGRES_DB: whatsapp
+    volumes:
+      # Named volume for the Baileys auth state / linked WhatsApp session. The
+      # project-prefixed volume name (`<project>_whatsapp_pgdata`) is what makes
+      # the linked session survive across upgrades and the bespoke->module
+      # transition, as long as the compose project stays the services-dir basename
+      # (citadel resolves that identically on both paths -- citadel-cli#436/#624).
+      - whatsapp_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U whatsapp"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  whatsapp_pgdata:
