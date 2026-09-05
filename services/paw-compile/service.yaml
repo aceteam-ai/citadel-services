@@ -1,0 +1,115 @@
+# Citadel module manifest for the Program-as-Weights (PAW) compile server: a
+# self-hosted FastAPI implementation of the programasweights.com REST compile
+# protocol (avra-m3/program-as-weights-server, MIT), so a spec can be compiled
+# into a runnable "program" (a LoRA adapter over a small interpreter model)
+# entirely on the customer's own node -- no hosted API required. The
+# unmodified official `programasweights` SDK works against it unchanged, just
+# by pointing PAW_API_URL at this server (verified against the aep135 node
+# deploy this module packages).
+#
+# Image: built from a PINNED commit of avra-m3/program-as-weights-server's own
+# Dockerfile via a git build context (no vendored source in this repo, no
+# re-implemented build steps to drift from upstream -- see compose.yml). This
+# reproduces exactly the image the aep135 node verified a real compile
+# against.
+#
+# Host port: the container serves :8100 (the server's own default). No entry
+# for this module exists yet in citadel-cli's services/ports.go 8200+
+# registry block (last allocated: unlimited-ocr's 8213). This catalog module
+# reserves the NEXT free slot, 8214, via CITADEL_PAW_COMPILE_HOST_PORT,
+# following the same pattern as claudecode/meeting/gotenberg/nvr (module
+# compose lives here in citadel-services, host port is owned by citadel-cli's
+# registry). Registering `EnvPAWCompileHostPort =
+# "CITADEL_PAW_COMPILE_HOST_PORT"` / `PAWCompileHostPort = 8214` in
+# citadel-cli is a follow-up PR against that repo -- out of scope here
+# (catalog-only change). A standalone `docker compose up` defaults the host
+# publish to 8100 (matches container).
+#
+# GPU: required. Compiling loads two 4B models sequentially (peak ~8.5 GB per
+# upstream's docs/HOW_IT_WORKS.md, measured on an M4/24GB Mac over MPS, not
+# CUDA); CPU-only compiling would run but is impractically slow for anything
+# but a demo. vram_min_gb is set with headroom above that measured figure.
+#
+# Weights license caveat (see README "License"): the server code itself is
+# MIT. The `programasweights/*` Hugging Face artifacts it downloads at
+# runtime (the trained compiler/mapper weights, the GGUF interpreters, the
+# published program artifacts) ship with NO explicit license declared at
+# source, per upstream's own README warning. This module downloads them the
+# same way the reference deploy did; it does not change or resolve that
+# licensing gap.
+schema_version: 2
+name: paw-compile
+version: "0.1.0"
+description: >-
+  Self-hosted Program-as-Weights (PAW) compile server (avra-m3/
+  program-as-weights-server, MIT): compiles a natural-language spec into a
+  runnable program (LoRA adapter + small interpreter) on your own node. The
+  unmodified official `programasweights` SDK works against it unchanged via
+  PAW_API_URL.
+category: inference
+author: Avrami H (avra-m3), packaged by AceTeam
+license: MIT
+homepage: https://github.com/avra-m3/program-as-weights-server
+
+requires:
+  gpu: true
+  vram_min_gb: 12
+  arch: [amd64]
+
+ports:
+  - host: 8214
+    container: 8100
+    protocol: tcp
+    description: >-
+      PAW compile server HTTP API, loopback only (POST /api/v1/compile,
+      POST /api/v1/compile/raw, GET /api/v1/programs/{id}/download,
+      GET /api/v1/models/compilers, GET /health)
+
+config:
+  - name: HF_TOKEN
+    description: >-
+      Optional Hugging Face token. Without one, weight downloads are
+      unauthenticated (lower rate limits, per the server's own startup
+      warning); the compilers and interpreters it fetches are all public.
+    default: ""
+    required: false
+
+health_check:
+  # citadel-cli's health probe always dials 127.0.0.1:<host port>, so this is
+  # the loopback host-reachable port (matches ports[].host), not in-container
+  # 8100 -- same convention as kokoro/gotenberg/meeting. GET /health is
+  # liveness only (returns {"status":"ok"} before any model is loaded), so a
+  # compile is not required for a passing health check.
+  endpoint: /health
+  port: 8214
+  interval: "30s"
+  timeout: "10s"
+  retries: 5
+
+volumes:
+  - name: huggingface-cache
+    host: ~/citadel-cache/huggingface
+    container: /root/.cache/huggingface
+    description: >-
+      HuggingFace cache (shared with other HF-based services): the pseudo
+      compiler, trained compiler/mapper, and GGUF interpreter weights
+      download here once (~16 GB) and persist across restarts.
+  - name: paw-compile-data
+    host: ~/citadel-cache/paw-compile
+    container: /data
+    description: >-
+      Compiled program registry + .paw bundles (--data-dir). NOT persisted in
+      the reference docker-run deploy this module packages (its --data-dir
+      defaulted to the container's writable layer, under /app); mounting this
+      volume is a deliberate improvement so compiled programs survive a
+      restart or image upgrade.
+
+tags:
+  - paw
+  - program-as-weights
+  - programasweights
+  - compile
+  - lora
+  - inference
+  - fuzzy-functions
+  - gpu

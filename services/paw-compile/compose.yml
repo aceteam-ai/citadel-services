@@ -1,0 +1,85 @@
+# Catalog compose for the Program-as-Weights (PAW) compile server
+# (avra-m3/program-as-weights-server, MIT). Self-hosted implementation of the
+# programasweights.com REST compile protocol -- compiles a spec into a
+# runnable program entirely on this node. Packages the aep135 node deploy this
+# module is modeled on, which verified a real compile with the unmodified
+# `programasweights` SDK pointed at it via PAW_API_URL.
+#
+# Image: built from a PINNED commit of upstream's OWN Dockerfile via a git
+# build context (`build.context` as a git URL + ref, a Compose/BuildKit
+# feature verified working on this node). This reproduces exactly the image
+# the aep135 deploy verified, with no vendored source and no re-implemented
+# build steps to drift from upstream when its deps change. Update the pinned
+# ref deliberately (and re-verify a compile) rather than tracking a branch.
+#
+# GPU: required (not optional, unlike kokoro/ollama). Compiling loads two 4B
+# models sequentially; CPU-only compiling works per upstream's docs but is
+# impractically slow for anything but a demo, so this module -- like
+# vllm/tei -- ships one compose.yml with the nvidia device reservation, no
+# CPU-only path.
+#
+# --data-dir override: upstream's own CMD has no --data-dir, so it defaults to
+# `data/server` under the container's writable layer (the reference docker-run
+# deploy this module packages inherited that default -- compiled programs did
+# NOT survive a `docker rm`). This compose overrides the command to add
+# `--data-dir /data` and mounts a volume there, so compiled programs persist
+# across restarts and image upgrades like every other stateful module in this
+# catalog.
+#
+# Host port: the container serves :8100. citadel would publish it on host
+# 8214 via CITADEL_PAW_COMPILE_HOST_PORT once registered in citadel-cli's
+# services/ports.go (follow-up, see service.yaml) -- next free slot in the
+# 8200 block after unlimited-ocr's 8213. A standalone `docker compose up`
+# defaults the host publish to 8100.
+#
+# Loopback-only publish (127.0.0.1), deliberately: the server has no auth of
+# its own (no API key, no rate limiting -- see upstream README), so it must
+# not be reachable off-host. citadel-cli's health probe always dials
+# 127.0.0.1, so this does not affect health probing.
+services:
+  paw-compile:
+    image: ghcr.io/aceteam-ai/paw-compile-service:latest
+    build:
+      context: https://github.com/avra-m3/program-as-weights-server.git#627dcbf198f2c5729ab5756cad4c771d2fc45198
+    container_name: citadel-paw-compile
+    command:
+      - uv
+      - run
+      - paw-server
+      - --host
+      - "0.0.0.0"
+      - --port
+      - "8100"
+      - --data-dir
+      - /data
+    ports:
+      - "127.0.0.1:${CITADEL_PAW_COMPILE_HOST_PORT:-8100}:8100"
+    environment:
+      - HF_TOKEN=${HF_TOKEN:-}
+    volumes:
+      # HuggingFace cache: pseudo compiler + trained compiler/mapper + GGUF
+      # interpreter weights download here once (~16 GB) and persist across
+      # restarts (shared with other HF-based services, e.g. kokoro/vllm/tei).
+      - ~/citadel-cache/huggingface:/root/.cache/huggingface
+      # Compiled program registry + .paw bundles (see --data-dir above).
+      - ~/citadel-cache/paw-compile:/data
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    restart: unless-stopped
+    healthcheck:
+      # curl-free: the upstream image is python:3.12-slim with no curl,
+      # same rationale as kokoro/gliner2's healthcheck.
+      test:
+        - CMD
+        - python
+        - -c
+        - "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8100/health').status == 200 else 1)"
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
