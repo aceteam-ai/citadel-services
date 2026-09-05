@@ -81,10 +81,35 @@ properties:
         required:
           type: boolean
           default: false
+        generate:
+          type: string
+          enum: [secret]
+          description: >-
+            Value the NODE mints for itself when the operator supplies none
+            (instead of prompting/failing). Only "secret" (a random URL-safe
+            token). STICKY: reused from the module's .env across reconciles and
+            updates so a running container's credential is never rotated.
+        carry:
+          type: boolean
+          default: false
+          description: >-
+            Value minted OUT OF BAND (not node-mintable, e.g. a per-tenant key
+            issued by the module's own admin API) that must SURVIVE an
+            update-in-place (uninstall+reinstall deletes the module's .env). The
+            node reuses whatever is persisted but never fabricates one when
+            absent. See citadel-cli#624 (the WhatsApp bridge TENANT_* keys).
   health_check:
     type: object
     required: [endpoint, port]
     properties:
+      compose_service:
+        type: string
+        description: >-
+          Compose SERVICE whose running state is this module's run-state health
+          signal, for a module whose real container is not the citadel-<name>
+          convention (e.g. a multi-container stack whose container is
+          <project>-<service>-N). The reconcile engine resolves health via
+          `docker compose -p <project> ps <service>` instead. See citadel-cli#624.
       endpoint:
         type: string
         description: HTTP path for health check

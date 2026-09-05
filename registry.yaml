@@ -33,6 +33,12 @@ services:
     gpu: "no"
     description: "Personal WeChat REST API via WeChatFerry (per-person, Windows VM)"
     tags: [wechat, messaging, personal, windows-only]
+  - name: whatsapp-bridge
+    version: "latest"
+    category: tools
+    gpu: "no"
+    description: "Multi-tenant WhatsApp bridge (Baileys) + Postgres; managed as a first-class Citadel module (citadel-cli#624)"
+    tags: [whatsapp, messaging, baileys, bridge, multi-tenant]
   - name: claudecode
     version: "0.1.0"
     category: agent-runtime
