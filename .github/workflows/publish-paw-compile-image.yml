@@ -1,0 +1,75 @@
+# Build and publish the PAW compile server image to GitHub Container Registry.
+#
+# Publishes ghcr.io/aceteam-ai/paw-compile-service:latest, the tag referenced
+# by services/paw-compile/compose.yml. Unlike kokoro/gliner2, the build
+# CONTEXT is upstream's own repo at a pinned commit
+# (avra-m3/program-as-weights-server), not a local build/ dir in this repo --
+# see compose.yml for why (no vendored source, no re-implemented build steps).
+# Bumping the pinned ref in compose.yml's build.context is what triggers a
+# rebuild here.
+#
+# Auth uses the built-in GITHUB_TOKEN with packages:write, so no PAT or custom
+# secret is required.
+#
+# Note: this workflow is unexercised until merged to main (first push to
+# main under services/paw-compile/** triggers the first real run). The image
+# bundles CUDA-enabled torch wheels and is several GB; if GHA's build cache
+# (`cache-to: type=gha,mode=max`) exceeds the runner's cache quota, drop
+# `mode=max` for plain `type=gha` before disabling caching entirely.
+name: publish-paw-compile-image
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - "services/paw-compile/**"
+      - ".github/workflows/publish-paw-compile-image.yml"
+
+env:
+  IMAGE: ghcr.io/aceteam-ai/paw-compile-service
+  # Keep this in sync with the pinned ref in services/paw-compile/compose.yml.
+  UPSTREAM_REF: "https://github.com/avra-m3/program-as-weights-server.git#627dcbf198f2c5729ab5756cad4c771d2fc45198"
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # :latest plus a short-SHA tag for traceability. The SHA is this repo's
+      # commit (the manifest/pin change), not upstream's -- upstream's pinned
+      # commit is recorded in UPSTREAM_REF / compose.yml instead.
+      - name: Compute image tags
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.IMAGE }}
+          tags: |
+            type=raw,value=latest
+            type=sha,format=short
+
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: ${{ env.UPSTREAM_REF }}
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha

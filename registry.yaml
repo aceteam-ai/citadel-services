@@ -69,3 +69,9 @@ services:
     gpu: "no"
     description: "Self-hosted camera NVR: docker-wyze-bridge (Wyze TUTK->RTSP) + Frigate (continuous recording + local object detection); local/NAS/volume storage, Intel-iGPU OpenVINO detection (citadel-cli#597)"
     tags: [nvr, camera, frigate, wyze, surveillance, recording, object-detection, openvino, media, cpu]
+  - name: paw-compile
+    version: "0.1.0"
+    category: inference
+    gpu: required
+    description: "Self-hosted Program-as-Weights compile server (avra-m3/program-as-weights-server, MIT): compiles a spec into a runnable program (LoRA adapter + interpreter) on your own node; unmodified programasweights SDK works via PAW_API_URL"
+    tags: [paw, program-as-weights, programasweights, compile, lora, inference, fuzzy-functions, gpu]
