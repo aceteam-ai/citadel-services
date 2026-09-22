@@ -1,4 +1,7 @@
 version: 1
+# Populated only from the app-runtime-image-lock artifact produced by an
+# authorized image release. Execution references must never use mutable tags.
+runtime_images: []
 services:
   - name: ollama
     version: "latest"
