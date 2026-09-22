@@ -30,3 +30,6 @@ jobs:
 
       - name: Validate catalog schemas
         run: python scripts/validate_catalog.py
+
+      - name: Test registry schema invariants
+        run: python -m unittest discover -s tests

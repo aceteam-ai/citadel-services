@@ -35,8 +35,18 @@ community catalog sources cannot add or replace these images.
 ## App Runtime Images
 
 The `runtime_images` entries name the multi-architecture images used by hosted
-apps. Each image supports `amd64` and `arm64`. Operators can cache the image for
-their node's architecture after refreshing the catalog:
+apps. Execution references are always immutable
+`repository@sha256:<index-digest>` values. Their matching `stable` references
+are discovery aliases only and Citadel never pulls or executes them.
+
+The list remains empty until the first authorized AceTeam runtime release. That
+release produces an `app-runtime-image-lock-vX.Y.Z` artifact containing the
+real multi-architecture index digests. Maintainers copy those reviewed lock
+entries into `registry.yaml`; placeholder or single-architecture digests are
+not accepted.
+
+After locked entries exist, operators can cache the images supported by their
+node's architecture after refreshing the catalog:
 
 ```bash
 citadel service catalog update
@@ -44,9 +54,11 @@ citadel service catalog pre-pull-runtimes
 ```
 
 Use `citadel service catalog pre-pull-runtimes --dry-run` to inspect the trusted
-image references without contacting the registry. Publishing the referenced
-images is a separate, credential-gated release operation in the AceTeam
-repository.
+digest references without contacting the registry. The command validates the
+entire trusted list against the host architecture before any pull, so an
+unsupported entry cannot leave a partially warmed cache. Publishing the
+referenced images is a separate, credential-gated release operation in the
+AceTeam repository.
 
 ## Install a Service
 
@@ -73,7 +85,8 @@ citadel service install <name>
 8. Open a PR
 
 Run `python scripts/validate_catalog.py` to validate the registry and every
-service manifest locally. Pull requests run the same validation in CI.
+service manifest locally. Run `python -m unittest discover -s tests` for the
+negative schema contracts. Pull requests run both in CI.
 
 ### service.yaml Schema
 
