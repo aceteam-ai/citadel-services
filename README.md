@@ -72,6 +72,9 @@ citadel service install <name>
 7. Validate `service.yaml` against `schema/service-schema.yaml`
 8. Open a PR
 
+Run `python scripts/validate_catalog.py` to validate the registry and every
+service manifest locally. Pull requests run the same validation in CI.
+
 ### service.yaml Schema
 
 Every service must include a `service.yaml` with at minimum:
