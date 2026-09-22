@@ -1,4 +1,14 @@
 version: 1
+runtime_images:
+  - name: python
+    image: ghcr.io/aceteam-ai/aceteam-app-python:stable
+    architectures: [amd64, arm64]
+  - name: node
+    image: ghcr.io/aceteam-ai/aceteam-app-node:stable
+    architectures: [amd64, arm64]
+  - name: static
+    image: ghcr.io/aceteam-ai/aceteam-app-static:stable
+    architectures: [amd64, arm64]
 services:
   - name: ollama
     version: "latest"

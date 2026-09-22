@@ -1,0 +1,54 @@
+$schema: "https://json-schema.org/draft/2020-12/schema"
+title: Citadel Service Registry
+description: Schema for the top-level registry.yaml catalog index
+type: object
+additionalProperties: false
+required: [version, services]
+properties:
+  version:
+    const: 1
+  runtime_images:
+    type: array
+    description: Trusted hosted-app runtime images published by AceTeam
+    uniqueItems: true
+    items:
+      type: object
+      additionalProperties: false
+      required: [name, image, architectures]
+      properties:
+        name:
+          type: string
+          enum: [python, node, static]
+        image:
+          type: string
+          pattern: "^ghcr\\.io/aceteam-ai/aceteam-app-(python|node|static):[A-Za-z0-9._-]+$"
+        architectures:
+          type: array
+          minItems: 1
+          uniqueItems: true
+          items:
+            type: string
+            enum: [amd64, arm64]
+  services:
+    type: array
+    items:
+      type: object
+      additionalProperties: false
+      required: [name, version, category, gpu, description]
+      properties:
+        name:
+          type: string
+          pattern: "^[a-z0-9][a-z0-9-]*$"
+        version:
+          type: string
+        category:
+          type: string
+        gpu:
+          type: string
+          enum: [required, optional, "no"]
+        description:
+          type: string
+        tags:
+          type: array
+          items:
+            type: string

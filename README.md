@@ -27,7 +27,26 @@ Each service lives in `services/<name>/` and contains:
 - **compose.yml** -- Docker Compose file to run the service
 - **README.md** -- Human-readable documentation with quick start and configuration
 
-The top-level `registry.yaml` is a machine-readable index of all services.
+The top-level `registry.yaml` is a machine-readable index of all services. It
+also lists the trusted AceTeam app runtime images that Citadel nodes may
+pre-pull. Runtime image metadata is honored only from this built-in catalog;
+community catalog sources cannot add or replace these images.
+
+## App Runtime Images
+
+The `runtime_images` entries name the multi-architecture images used by hosted
+apps. Each image supports `amd64` and `arm64`. Operators can cache the image for
+their node's architecture after refreshing the catalog:
+
+```bash
+citadel service catalog update
+citadel service catalog pre-pull-runtimes
+```
+
+Use `citadel service catalog pre-pull-runtimes --dry-run` to inspect the trusted
+image references without contacting the registry. Publishing the referenced
+images is a separate, credential-gated release operation in the AceTeam
+repository.
 
 ## Install a Service
 
@@ -72,3 +91,8 @@ Every service must include a `service.yaml` with at minimum:
 | `tags` | array | no | Searchable tags |
 
 See [schema/service-schema.yaml](schema/service-schema.yaml) for the full JSON Schema definition.
+
+The top-level index is defined by
+[schema/registry-schema.yaml](schema/registry-schema.yaml). Only AceTeam
+maintainers may add `runtime_images`; community catalogs cannot opt into the
+trusted runtime pre-pull path.
