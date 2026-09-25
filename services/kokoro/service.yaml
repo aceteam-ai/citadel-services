@@ -52,7 +52,7 @@ ports:
     protocol: tcp
     description: >-
       Kokoro TTS HTTP API, loopback only (POST /v1/audio/speech,
-      POST /v1/audio/speech/batch, GET /info, GET /health,
+      POST /v1/audio/speech/captioned, POST /v1/audio/speech/batch, GET /info, GET /health,
       POST /v1/audio/cache/bust)
 
 config:
