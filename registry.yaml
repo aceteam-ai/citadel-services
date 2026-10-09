@@ -81,3 +81,9 @@ services:
     gpu: required
     description: "Self-hosted Program-as-Weights compile server (avra-m3/program-as-weights-server, MIT): compiles a spec into a runnable program (LoRA adapter + interpreter) on your own node; unmodified programasweights SDK works via PAW_API_URL"
     tags: [paw, program-as-weights, programasweights, compile, lora, inference, fuzzy-functions, gpu]
+  - name: voice-clone
+    version: "0.1.0"
+    category: inference
+    gpu: required
+    description: "Voice-cloning TTS: Chatterbox (MIT, default, watermarked) + opt-in OmniVoice (CC-BY-NC weights, voice design); consent-gated enrollment, OpenAI-compatible speech, word timestamps, per-item receipts (#28)"
+    tags: [tts, text-to-speech, voice-cloning, voice-design, chatterbox, omnivoice, audio, openai-compatible, watermark, gpu]

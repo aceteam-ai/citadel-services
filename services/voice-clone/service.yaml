@@ -1,0 +1,145 @@
+# Citadel module manifest for the voice-clone text-to-speech service
+# (aceteam-ai/citadel-services#28).
+#
+# Adds voice cloning and voice design next to kokoro (which stays the
+# stock-voice engine). Two engines behind one OpenAI-style API:
+#   - chatterbox: Resemble AI Chatterbox, MIT code AND weights, commercially
+#     usable, the default. Built-in Perth perceptual watermark stays on.
+#   - omnivoice: k2-fsa OmniVoice, Apache-2.0 code, CC-BY-NC weights (the
+#     model card: "licensed under the CC-BY-NC due to constraints from its
+#     training data"). Opt-in via OMNIVOICE_ACCEPT_NONCOMMERCIAL_LICENSE; every
+#     OmniVoice response and receipt carries model_license "CC-BY-NC".
+#
+# Consent: enrollment (POST /v1/voices) is rejected without a consent record
+# {speaker_name, attested_by, statement, attested_at}. The record is stored with
+# the voice on this node and echoed in every receipt rendered from it.
+#
+# Host port: the container serves :8080; citadel publishes it on host 8215 via
+# CITADEL_VOICE_CLONE_HOST_PORT, the next free slot in citadel-cli's
+# services/ports.go 8200 block after omnivoice's 8214. Registering it there is
+# a pending citadel-cli follow-up. Published to 127.0.0.1 ONLY.
+schema_version: 2
+name: voice-clone
+version: "0.1.0"
+description: >-
+  Voice-cloning text-to-speech on your own node: Chatterbox (MIT, default,
+  watermarked) and opt-in OmniVoice (CC-BY-NC weights, voice design via
+  instruct). OpenAI-compatible /v1/audio/speech, consent-gated voice
+  enrollment, wav/mp3/opus, word timestamps, per-item receipts.
+category: inference
+author: AceTeam
+license: MIT
+homepage: https://github.com/resemble-ai/chatterbox
+
+requires:
+  # GPU only; no CPU fallback. Chatterbox (~0.5B T3 + S3Gen) plus the MMS
+  # aligner fit in ~6 GB; enabling OmniVoice (0.6B fp16 + audio tokenizer) and
+  # the Whisper ASR for transcript-less enrollment pushes that toward ~10 GB.
+  gpu: true
+  vram_min_gb: 8
+  arch: [amd64]
+
+ports:
+  - host: 8215
+    container: 8080
+    protocol: tcp
+    description: >-
+      Voice-clone TTS HTTP API, loopback only (POST /v1/voices, GET /v1/voices,
+      DELETE /v1/voices/{id}, POST /v1/audio/speech, GET /info, GET /health)
+
+config:
+  - name: OMNIVOICE_ACCEPT_NONCOMMERCIAL_LICENSE
+    description: >-
+      Set to true to enable the OmniVoice engine. Its pretrained weights are
+      CC-BY-NC: output must not be used commercially. While unset, OmniVoice
+      requests are refused (403) and the weights are never downloaded.
+    default: "false"
+    required: false
+  - name: TTS_SLOTS
+    description: >-
+      Concurrent GPU work slots (enrollment prompt builds plus synthesis).
+      Advertised on /health and /info; requests beyond this queue.
+    default: 1
+    required: false
+  - name: VOICE_CLONE_DEFAULT_ENGINE
+    description: "Engine used when a request omits `engine`: chatterbox (default) or omnivoice."
+    default: "chatterbox"
+    required: false
+  - name: VOICE_CLONE_DEFAULT_FORMAT
+    description: "Default response_format: mp3 (default), opus or wav."
+    default: "mp3"
+    required: false
+  - name: VOICE_CLONE_MAX_INPUT_CHARS
+    description: "Max characters per synthesis request; over-cap requests get a 413."
+    default: 2000
+    required: false
+  - name: VOICE_CLONE_PRELOAD
+    description: >-
+      Load the default engine at startup (true) so /health reports ready only
+      once it can serve. false loads it on the first request.
+    default: "true"
+    required: false
+  - name: VOICE_CLONE_ASR_MODEL
+    description: >-
+      Whisper model used to auto-transcribe a reference clip enrolled without a
+      transcript. Loaded only when an OmniVoice prompt needs it.
+    default: "openai/whisper-large-v3-turbo"
+    required: false
+  - name: OMNIVOICE_MODEL
+    description: "OmniVoice checkpoint (HuggingFace repo id)."
+    default: "k2-fsa/OmniVoice"
+    required: false
+  - name: OMNIVOICE_NUM_STEP
+    description: "OmniVoice iterative decoding steps (quality vs latency)."
+    default: 32
+    required: false
+  - name: VOICE_CLONE_MP3_BITRATE
+    description: "MP3 bitrate."
+    default: "64k"
+    required: false
+  - name: VOICE_CLONE_OPUS_BITRATE
+    description: "Ogg/Opus bitrate."
+    default: "32k"
+    required: false
+
+health_check:
+  # citadel-cli's probe dials 127.0.0.1:<host port>, so this is the host port.
+  endpoint: /health
+  port: 8215
+  interval: "30s"
+  timeout: "10s"
+  retries: 5
+
+volumes:
+  - name: huggingface-cache
+    host: ~/citadel-cache/huggingface
+    container: /root/.cache/huggingface
+    description: >-
+      Shared HuggingFace cache: Chatterbox, OmniVoice (once enabled), Whisper
+      ASR, and the MMS forced aligner (TORCH_HOME points inside it).
+  - name: voice-clone-data
+    host: ~/citadel-cache/voice-clone
+    container: /data
+    description: >-
+      Enrolled voices: consent record, consented reference clip and per-engine
+      prompt files. Node-local biometric data; deleting a voice removes all of it.
+
+node_tags:
+  - engine:tts
+  - tts:voice-clone
+  - tts:chatterbox
+  - model:chatterbox
+
+tags:
+  - tts
+  - text-to-speech
+  - voice-cloning
+  - voice-design
+  - chatterbox
+  - omnivoice
+  - audio
+  - openai-compatible
+  - watermark
+  - mp3
+  - opus
+  - gpu

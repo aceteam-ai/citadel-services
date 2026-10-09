@@ -1,0 +1,24 @@
+# GPU override for the voice-clone TTS module. REQUIRED: the module declares
+# requires.gpu: true and the image only ships CUDA torch. Layer it on top of
+# compose.yml:
+#
+#     docker compose -f compose.yml -f compose.gpu.yml build
+#     docker compose -f compose.yml -f compose.gpu.yml up -d
+#
+# It adds the NVIDIA device reservation (the same mechanism ollama/vllm/kokoro
+# use). Set VOICE_CLONE_GPU_COUNT to reserve fewer than all GPUs.
+#
+# citadel note: `citadel module install` runs a bare `docker compose up` on
+# compose.yml only, so wiring this override into the citadel-managed GPU path
+# is the same follow-up kokoro has in citadel-cli (see README).
+services:
+  voice-clone:
+    environment:
+      - VOICE_CLONE_DEVICE=cuda
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: ${VOICE_CLONE_GPU_COUNT:-all}
+              capabilities: [gpu]

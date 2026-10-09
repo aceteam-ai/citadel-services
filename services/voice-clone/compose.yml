@@ -1,0 +1,63 @@
+# Catalog compose for the voice-clone TTS module (aceteam-ai/citadel-services#28).
+#
+# Two cloning engines behind one OpenAI-style API:
+#   - chatterbox (Resemble AI, MIT): the default, commercially usable,
+#     every output carries Chatterbox's built-in Perth watermark.
+#   - omnivoice (k2-fsa, code Apache-2.0, weights CC-BY-NC): opt-in only, set
+#     OMNIVOICE_ACCEPT_NONCOMMERCIAL_LICENSE=true to enable. Until then its
+#     requests are refused and its weights are never downloaded.
+#
+# GPU required (service.yaml requires.gpu: true). This base file carries the
+# service definition; compose.gpu.yml adds the NVIDIA device reservation and
+# must be layered on top:
+#     docker compose -f compose.yml -f compose.gpu.yml up -d
+# Without it the container starts, finds no GPU, and fails loudly at startup
+# (VOICE_CLONE_DEVICE=cuda) rather than crawling on CPU.
+#
+# Host port: the container serves :8080. citadel publishes it on host 8215 via
+# CITADEL_VOICE_CLONE_HOST_PORT (next free slot in citadel-cli's
+# services/ports.go 8200 block after omnivoice's 8214; registering it there is a
+# follow-up, see README). A standalone `docker compose up` defaults to 8215 too.
+#
+# Loopback-only publish (127.0.0.1), deliberately: voices are biometric data,
+# the service has no auth of its own, and its only consumer is the co-located
+# citadel worker. It must not be reachable off-host.
+services:
+  voice-clone:
+    image: ghcr.io/aceteam-ai/voice-clone-service:latest
+    build:
+      context: ./build
+    container_name: citadel-voice-clone
+    ports:
+      - "127.0.0.1:${CITADEL_VOICE_CLONE_HOST_PORT:-8215}:8080"
+    environment:
+      - PORT=8080
+      - VOICE_CLONE_DEVICE=${VOICE_CLONE_DEVICE:-cuda}
+      - TTS_SLOTS=${TTS_SLOTS:-1}
+      - VOICE_CLONE_DEFAULT_ENGINE=${VOICE_CLONE_DEFAULT_ENGINE:-chatterbox}
+      - VOICE_CLONE_DEFAULT_FORMAT=${VOICE_CLONE_DEFAULT_FORMAT:-mp3}
+      - VOICE_CLONE_MAX_INPUT_CHARS=${VOICE_CLONE_MAX_INPUT_CHARS:-2000}
+      - VOICE_CLONE_PRELOAD=${VOICE_CLONE_PRELOAD:-true}
+      - VOICE_CLONE_ASR_MODEL=${VOICE_CLONE_ASR_MODEL:-openai/whisper-large-v3-turbo}
+      - VOICE_CLONE_MP3_BITRATE=${VOICE_CLONE_MP3_BITRATE:-64k}
+      - VOICE_CLONE_OPUS_BITRATE=${VOICE_CLONE_OPUS_BITRATE:-32k}
+      - OMNIVOICE_ACCEPT_NONCOMMERCIAL_LICENSE=${OMNIVOICE_ACCEPT_NONCOMMERCIAL_LICENSE:-false}
+      - OMNIVOICE_MODEL=${OMNIVOICE_MODEL:-k2-fsa/OmniVoice}
+      - OMNIVOICE_NUM_STEP=${OMNIVOICE_NUM_STEP:-32}
+    volumes:
+      # Shared HuggingFace cache: Chatterbox, OmniVoice (only once enabled), the
+      # Whisper ASR model and (via TORCH_HOME) the MMS forced aligner land here.
+      - ~/citadel-cache/huggingface:/root/.cache/huggingface
+      # Enrolled voices: consent record, reference clip, per-engine prompts.
+      - ~/citadel-cache/voice-clone:/data
+    restart: unless-stopped
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import urllib.request,json,sys; d=json.load(urllib.request.urlopen('http://localhost:8080/health')); sys.exit(0 if d.get('model_loaded') else 1)"
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 600s
