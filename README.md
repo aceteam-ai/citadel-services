@@ -6,6 +6,7 @@ Service catalog for [Citadel](https://github.com/aceteam-ai/citadel-cli) nodes. 
 
 | Service | Category | GPU | Description |
 |---------|----------|-----|-------------|
+| [radiology](services/radiology/) | tools | no | Orthanc-only DICOM receiver; authenticated local HTTP and explicit LAN peers; viewer disabled, synthetic/de-identified acceptance only |
 | [ollama](services/ollama/) | inference | optional | Local LLM runner with model management |
 | [vllm](services/vllm/) | inference | required | High-performance LLM inference with PagedAttention |
 | [llamacpp](services/llamacpp/) | inference | optional | Lightweight GGUF model inference server |
