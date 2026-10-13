@@ -1,5 +1,11 @@
 version: 1
 services:
+  - name: radiology
+    version: "0.1.0"
+    category: tools
+    gpu: "no"
+    description: "Orthanc-only node-local DICOM receiver; authenticated loopback HTTP, explicit LAN peers, no viewer exposure; synthetic/de-identified acceptance only (citadel-cli#1303)"
+    tags: [radiology, orthanc, dicom, tools, cpu]
   - name: ollama
     version: "latest"
     category: inference
