@@ -27,6 +27,11 @@ with those weights must not be used commercially. So:
   receipt carries `"model_license": "CC-BY-NC"` and `"commercial_use": false`.
 - `GET /info` lists each engine with its weights license and whether it is
   enabled.
+- `word_timestamps` uses the torchaudio MMS_FA aligner, whose weights are also
+  **CC-BY-NC 4.0**, on every engine path, including Chatterbox. It is not
+  gated, because platform policy is to label non-commercial output and never
+  block it. Instead, every receipt that used it is labelled non-commercial (see
+  [Word timestamps](#word-timestamps)).
 
 Chatterbox weights are MIT and commercially usable; it is the default for that
 reason.
@@ -172,7 +177,7 @@ The full receipt (also the `receipt` field of the JSON response):
 
 ```json
 {
-  "receipt_id": "<sha256>", "service": "voice-clone", "service_version": "0.1.0",
+  "receipt_id": "<sha256>", "service": "voice-clone", "service_version": "0.2.0",
   "engine": "omnivoice", "model_version": "omnivoice-0.2.1+k2-fsa/OmniVoice",
   "model_license": "CC-BY-NC", "commercial_use": false, "watermark": null,
   "voice": "voice_3f9c...", "voice_id": "voice_3f9c...", "consent": {"speaker_name": "..."},
@@ -190,9 +195,28 @@ With `"word_timestamps": true` the response is JSON:
   "audio_base64": "<encoded audio>",
   "mime": "audio/mpeg",
   "words": [{"word": "Hello", "start": 0.12, "end": 0.41}],
-  "receipt": {"...": "...", "word_count": 4, "unaligned_words": []}
+  "receipt": {
+    "...": "...", "word_count": 4, "unaligned_words": [],
+    "model_license": "MIT", "commercial_use": false,
+    "aligner_model": "torchaudio.pipelines.MMS_FA", "aligner_license": "CC-BY-NC"
+  }
 }
 ```
+
+**License disclosure.** The MMS_FA aligner weights are CC-BY-NC 4.0, so a
+timestamped response is labelled non-commercial on every engine, including the
+MIT Chatterbox path:
+
+- `model_license` stays the engine's license (the audio's), for example `MIT`.
+- `aligner_model` and `aligner_license` name the aligner that produced the
+  timestamps.
+- `commercial_use` is `false` unless both the engine and the aligner allow
+  commercial use. An aligner that declares no license counts as non-commercial.
+- The `X-TTS-Aligner-License` response header carries `aligner_license`, so a
+  header-only consumer sees the label without decoding `X-TTS-Receipt`.
+
+None of these fields or the header appear on a response without
+`word_timestamps`.
 
 Times come from forced alignment of the rendered audio against the input text
 (torchaudio MMS_FA, CTC). Alignment is English and Latin script only: words are
@@ -204,7 +228,8 @@ given invented times. Spell numbers out for full coverage.
 
 `/health` reports `model_loaded` once the default engine is loaded. `/info`
 lists engines (model, code and weights license, commercial use, enabled,
-loaded, watermark), formats, limits and current/peak GPU memory.
+loaded, watermark), the word-timestamp aligner (model, weights license,
+commercial use), formats, limits and current/peak GPU memory.
 
 ## Configuration
 

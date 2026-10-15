@@ -20,7 +20,7 @@
 # a pending citadel-cli follow-up. Published to 127.0.0.1 ONLY.
 schema_version: 2
 name: voice-clone
-version: "0.1.0"
+version: "0.2.0"
 description: >-
   Voice-cloning text-to-speech on your own node: Chatterbox (MIT, default,
   watermarked) and opt-in OmniVoice (CC-BY-NC weights, voice design via
