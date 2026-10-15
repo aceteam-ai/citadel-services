@@ -71,7 +71,7 @@ logger = logging.getLogger("voice-clone")
 
 # --- Configuration --------------------------------------------------------
 
-SERVICE_VERSION = "0.1.0"
+SERVICE_VERSION = "0.2.0"
 PORT = int(os.environ.get("PORT", "8080"))
 DATA_DIR = os.environ.get("VOICE_CLONE_DATA_DIR", "/data")
 TTS_SLOTS = max(1, int(os.environ.get("TTS_SLOTS", "1")))
@@ -484,12 +484,26 @@ def build_receipt(
     if words is not None:
         receipt["word_count"] = len(words)
         receipt["unaligned_words"] = unaligned or []
+        # Word timestamps come from a separate aligner with its own license
+        # (citadel-services#30). Disclose it, and mark the whole item
+        # non-commercial when the aligner's weights are, even on the MIT
+        # Chatterbox path: the response bundles NC-derived timestamps.
+        # model_license stays the ENGINE's (the audio's) license. Policy is
+        # label-only (aceteam#10823): disclose, never refuse.
+        # An aligner that does not declare a license is treated as
+        # non-commercial, so the receipt can never overstate permission.
+        receipt["aligner_model"] = getattr(ALIGNER, "model_id", None)
+        receipt["aligner_license"] = getattr(
+            ALIGNER, "weights_license", engines_mod.Aligner.weights_license
+        )
+        aligner_commercial = getattr(ALIGNER, "commercial_use", False)
+        receipt["commercial_use"] = bool(engine.commercial_use and aligner_commercial)
     return receipt
 
 
 def receipt_headers(receipt: dict) -> dict[str, str]:
     encoded = base64.urlsafe_b64encode(json.dumps(receipt).encode()).decode("ascii")
-    return {
+    headers = {
         # Kokoro-compatible contract parsed by citadel-cli's SYNTHESIZE_SPEECH.
         "X-TTS-Cache-Hit": "0",
         "X-TTS-Duration-Seconds": str(receipt["seconds"]),
@@ -503,6 +517,11 @@ def receipt_headers(receipt: dict) -> dict[str, str]:
         "X-TTS-Render-Seconds": str(receipt["render_seconds"]),
         "X-TTS-Receipt": encoded,
     }
+    # Only when word timestamps ran: the aligner's license, so a header-only
+    # consumer sees the CC-BY-NC disclosure without decoding X-TTS-Receipt.
+    if receipt.get("aligner_license"):
+        headers["X-TTS-Aligner-License"] = receipt["aligner_license"]
+    return headers
 
 
 # --- App ------------------------------------------------------------------
@@ -567,7 +586,12 @@ async def info() -> dict:
             }
             for e in ENGINES.values()
         ],
-        "word_timestamps": {"aligner": getattr(ALIGNER, "model_id", None), "languages": ["en"]},
+        "word_timestamps": {
+            "aligner": getattr(ALIGNER, "model_id", None),
+            "weights_license": getattr(ALIGNER, "weights_license", engines_mod.Aligner.weights_license),
+            "commercial_use": getattr(ALIGNER, "commercial_use", False),
+            "languages": ["en"],
+        },
         "gpu_memory": engines_mod.cuda_memory(),
     }
 

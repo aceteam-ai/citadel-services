@@ -396,6 +396,93 @@ def test_word_timestamps_json_shape(svc):
     assert starts == sorted(starts)
 
 
+# --- aligner license disclosure (citadel-services#30) ---------------------
+
+
+class LicensedAligner(FakeAligner):
+    """FakeAligner that declares a license, like the real MMS_FA Aligner."""
+
+    def __init__(self, weights_license, commercial):
+        self.weights_license = weights_license
+        self.commercial_use = commercial
+
+
+def decoded_receipt(r):
+    return json.loads(base64.urlsafe_b64decode(r.headers["X-TTS-Receipt"]))
+
+
+def test_word_timestamps_disclose_noncommercial_aligner_on_commercial_engine(svc, monkeypatch):
+    # The default (MIT, commercial) Chatterbox path with word timestamps: the
+    # audio is MIT, but the timestamps come from CC-BY-NC weights, so the item
+    # is labelled non-commercial. Disclosed, never refused (label-only policy).
+    monkeypatch.setattr(server, "ALIGNER", LicensedAligner("CC-BY-NC", commercial=False))
+    r = svc.call(
+        "POST",
+        "/v1/audio/speech",
+        json={"input": "Read the pages slowly.", "engine": "chatterbox", "word_timestamps": True},
+    )
+    assert r.status_code == 200, r.text
+    for receipt in (r.json()["receipt"], decoded_receipt(r)):
+        assert receipt["model_license"] == "MIT"
+        assert receipt["commercial_use"] is False
+        assert receipt["aligner_license"] == "CC-BY-NC"
+        assert receipt["aligner_model"] == "fake-aligner"
+    assert r.headers["X-TTS-Model-License"] == "MIT"
+    assert r.headers["X-TTS-Aligner-License"] == "CC-BY-NC"
+
+
+def test_no_word_timestamps_keeps_the_commercial_path_unlabelled(svc):
+    r = svc.call(
+        "POST",
+        "/v1/audio/speech",
+        json={"input": "Plain narration.", "engine": "chatterbox", "response_format": "wav"},
+    )
+    assert r.status_code == 200, r.text
+    receipt = decoded_receipt(r)
+    assert receipt["model_license"] == "MIT" and receipt["commercial_use"] is True
+    assert "aligner_license" not in receipt and "aligner_model" not in receipt
+    assert "X-TTS-Aligner-License" not in r.headers
+
+
+def test_aligner_without_declared_license_is_treated_as_noncommercial(svc):
+    # The fixture's FakeAligner declares no license: fail toward the label.
+    r = svc.call(
+        "POST",
+        "/v1/audio/speech",
+        json={"input": "Undeclared aligner.", "engine": "chatterbox", "word_timestamps": True},
+    )
+    assert r.status_code == 200, r.text
+    receipt = r.json()["receipt"]
+    assert receipt["commercial_use"] is False
+    assert receipt["aligner_license"] == engines.Aligner.weights_license == "CC-BY-NC"
+
+
+def test_permissive_aligner_keeps_commercial_use(svc, monkeypatch):
+    # A future permissively licensed aligner (#30 option 3) must not be
+    # downgraded: only a non-commercial component flips the label.
+    monkeypatch.setattr(server, "ALIGNER", LicensedAligner("Apache-2.0", commercial=True))
+    r = svc.call(
+        "POST",
+        "/v1/audio/speech",
+        json={"input": "Permissive aligner.", "engine": "chatterbox", "word_timestamps": True},
+    )
+    assert r.status_code == 200, r.text
+    receipt = r.json()["receipt"]
+    assert receipt["commercial_use"] is True
+    assert receipt["aligner_license"] == "Apache-2.0"
+
+
+def test_real_aligner_declares_cc_by_nc_and_info_reports_it(svc, monkeypatch):
+    assert engines.Aligner.model_id == "torchaudio.pipelines.MMS_FA"
+    assert engines.Aligner.weights_license == "CC-BY-NC"
+    assert engines.Aligner.commercial_use is False
+    monkeypatch.setattr(server, "ALIGNER", engines.Aligner())  # never loads weights here
+    info = svc.call("GET", "/info").json()["word_timestamps"]
+    assert info["aligner"] == "torchaudio.pipelines.MMS_FA"
+    assert info["weights_license"] == "CC-BY-NC"
+    assert info["commercial_use"] is False
+
+
 def test_chatterbox_speed_is_applied_by_tempo(svc):
     text = "x" * 40  # 2.0 s from the fake engine
     r = svc.call("POST", "/v1/audio/speech", json={"input": text, "speed": 2.0, "response_format": "wav"})

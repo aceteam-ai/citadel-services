@@ -292,6 +292,11 @@ class Aligner:
     """torchaudio MMS_FA forced aligner (CTC, 16 kHz). English / Latin script."""
 
     model_id = "torchaudio.pipelines.MMS_FA"
+    # The MMS_FA weights are CC-BY-NC 4.0 (non-commercial only), whatever engine
+    # rendered the audio. "CC-BY-NC" is the same token OmniVoice uses, so one
+    # label mapping covers both. Downloaded at runtime, never baked into the image.
+    weights_license = "CC-BY-NC"
+    commercial_use = False
 
     def __init__(self) -> None:
         self._bundle: Any = None

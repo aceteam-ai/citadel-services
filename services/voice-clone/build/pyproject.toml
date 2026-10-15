@@ -1,6 +1,6 @@
 [project]
 name = "voice-clone-service"
-version = "0.1.0"
+version = "0.2.0"
 description = "Voice-cloning TTS HTTP service for Citadel nodes (Chatterbox default, OmniVoice opt-in)"
 requires-python = ">=3.10"
 # Runtime deps are installed by the Dockerfile (chatterbox-tts and omnivoice
