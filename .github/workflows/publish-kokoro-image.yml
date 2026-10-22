@@ -49,7 +49,7 @@ jobs:
         with:
           images: ${{ env.IMAGE }}
           tags: |
-            type=raw,value=latest
+            type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' }}
             type=sha,format=short
 
       # Default build: no build-args, so the Dockerfile's ARG TORCH_BACKEND=cpu
