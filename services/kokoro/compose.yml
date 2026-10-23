@@ -6,10 +6,10 @@
 # jasonsun.org book narration (1,071 EN paragraphs) through this service with
 # per-item ACET receipts instead of the current local script.
 #
-# CPU by default: this base image ships CPU-torch, so it runs on the org's M1
-# node (Kokoro-82M is small and ~real-time on CPU) AND on an NVIDIA node -- but
-# on CPU there. For real GPU acceleration, layer compose.gpu.yml, which builds
-# and runs a CUDA-torch image (:cuda) and demands the GPU explicitly:
+# CPU by default: this published base image ships CPU-torch for linux/amd64.
+# Its current OCI index has no arm64 image. For real GPU acceleration, layer
+# compose.gpu.yml on a compatible NVIDIA node. It builds and runs a CUDA-torch
+# image (:cuda) and demands the GPU explicitly:
 #     docker compose -f compose.yml -f compose.gpu.yml build
 #     docker compose -f compose.yml -f compose.gpu.yml up -d
 # The device reservation alone is NOT enough: a GPU reserved against the
@@ -30,9 +30,7 @@
 # probe always dials 127.0.0.1, so this does not affect health probing.
 services:
   kokoro:
-    image: ghcr.io/aceteam-ai/kokoro-service:latest
-    build:
-      context: ./build
+    image: ghcr.io/aceteam-ai/kokoro-service:sha-ad043e8@sha256:0f99603bc21c89b5bfbc941eaec0329805ba52b923b05414c26a111636452241
     container_name: citadel-kokoro
     ports:
       - "127.0.0.1:${CITADEL_TTS_HOST_PORT:-8080}:8080"

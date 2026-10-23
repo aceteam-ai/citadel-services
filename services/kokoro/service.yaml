@@ -8,15 +8,9 @@
 # generic engine it advertises is `tts` (node_tags below + /info's "engine"
 # field).
 #
-# Fabric seam (see README): the aceteam side already defines the `tts` engine
-# and a "tts-speech" template, but that template is a Coqui/XTTS placeholder
-# (image ghcr.io/coqui-ai/tts, port 5002, /api/tts). Per that model's own
-# docstring, "the node's citadel.yaml compose is authoritative on the real
-# image, entrypoint, and host ports; on divergence, the node compose is
-# authoritative." So this module is the real backing image, and lining the two
-# sides up (point the template at kokoro-service / 8210 / OpenAI-compatible
-# /v1/audio/speech, register CITADEL_TTS_HOST_PORT in citadel-cli, add the
-# node-side synthesis handler) is a set of follow-ups tracked in the PR.
+# Fabric seam (see README): AceTeam's `tts-speech` template currently references
+# kokoro-service:latest in a separate repo. That reference, host-port alignment,
+# and node-side synthesis acceptance are outside this catalog-only pin.
 #
 # Host port: the container serves :8080. citadel publishes it on host 8210 via
 # CITADEL_TTS_HOST_PORT (next free slot in citadel-cli services/ports.go after
@@ -30,18 +24,18 @@ description: >-
   Kokoro text-to-speech (Kokoro-82M, Apache-2.0): OpenAI-compatible speech
   synthesis on your own node, English + Mandarin voices, opus/mp3 output,
   content-addressed cache and per-item usage receipts. Backs the fabric `tts`
-  serving engine. Runs on CPU (M1) or GPU (3090).
+  serving engine. The published CPU image supports amd64; a separate CUDA build
+  can serve a compatible NVIDIA node.
 category: inference
 author: AceTeam
 license: Apache-2.0
 homepage: https://github.com/hexgrad/kokoro
 
 requires:
-  # CPU-first: Kokoro-82M is small and roughly real-time on CPU (the org's M1
-  # node runs it with no GPU). A GPU accelerates it but is not required; layer
-  # compose.gpu.yml + a CUDA-built image for NVIDIA nodes.
+  # The published CPU image currently has linux/amd64 only. The separate CUDA
+  # build path in compose.gpu.yml is outside this published-image pin.
   gpu: false
-  arch: [amd64, arm64]
+  arch: [amd64]
 
 ports:
   # Container serves :8080; citadel publishes it on host 8210 via

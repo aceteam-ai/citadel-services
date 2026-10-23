@@ -11,10 +11,9 @@
 # registry value: it is what the install-time port-conflict pre-check reads and
 # what keeps a second agent-runtime module (Hermes/OpenClaw) off 8204.
 #
-# Image: pinned to the tag published by citadel-cli#442
-# (ghcr.io/aceteam-ai/claudecode-service). Currently :latest to match the other
-# catalog services and the in-repo compose; move to an immutable :sha / @sha256
-# digest once #442 merges and produces a stable tag.
+# Image: the compose file pins the verified OCI index from citadel-cli main
+# commit 6fad6be3951e28d6a4ad34a6e39e8c90113328ae. See
+# ../IMAGE_PIN_PROVENANCE.md. Its published platform is linux/amd64 only.
 schema_version: 2
 name: claudecode
 version: 0.1.0
@@ -30,7 +29,7 @@ homepage: https://github.com/aceteam-ai/citadel-cli/issues/432
 requires:
   # CPU-only: the model path is the remote fabric proxy, so no GPU is needed.
   gpu: false
-  arch: [amd64, arm64]
+  arch: [amd64]
 
 ports:
   # The wrapper listens on the fixed internal contract port 8787; the module
