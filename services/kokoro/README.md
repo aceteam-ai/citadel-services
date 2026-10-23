@@ -3,8 +3,9 @@
 Serves [Kokoro](https://github.com/hexgrad/kokoro) (Kokoro-82M, Apache-2.0)
 speech synthesis on your own Citadel node: **OpenAI-compatible**, English +
 Mandarin voices, `opus`/`mp3` output, a content-addressed cache, and per-item
-usage receipts. **Runs on CPU (the org's M1 node) or GPU (3090) from the same
-image** — Kokoro-82M is small and roughly real-time on CPU.
+usage receipts. The published CPU image currently supports **linux/amd64**.
+The NVIDIA CUDA image is a separate local build path; no published arm64 image
+has been verified for an M1 node.
 
 This module backs the fabric **`tts` serving engine** (aceteam
 `ServingEngine.TTS` / the `tts-speech` provisioning template) — the synthesis
@@ -223,9 +224,9 @@ items — which is the batch endpoint's intended shape anyway.
 
 ## GPU
 
-The default `:latest` image is **CPU-torch** so it runs on the M1 node and on
-NVIDIA nodes alike (on CPU there). **The nvidia device reservation alone is not
-enough for acceleration** — a GPU reserved against the CPU-torch image still
+The pinned published image is **CPU-torch** for linux/amd64. It runs on a
+compatible NVIDIA node using its CPU. **The nvidia device reservation alone
+is not enough for acceleration** — a GPU reserved against the CPU-torch image still
 runs on CPU. For real GPU acceleration on an NVIDIA node, use the CUDA image via
 the GPU override, which builds it, runs it, and demands the GPU explicitly:
 
@@ -302,7 +303,7 @@ approves the final number at review.
 | Requirement | Value |
 |-------------|-------|
 | GPU | Optional (CPU-capable) |
-| Architecture | amd64, arm64 |
+| Architecture | amd64 (published CPU image) |
 | Disk | ~model cache (Kokoro-82M ≈ 350 MB) + audio cache (LRU-capped) |
 
 ## Configuration
