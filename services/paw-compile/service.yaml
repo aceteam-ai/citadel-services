@@ -13,17 +13,10 @@
 # reproduces exactly the image the aep135 node verified a real compile
 # against.
 #
-# Host port: the container serves :8100 (the server's own default). No entry
-# for this module exists yet in citadel-cli's services/ports.go 8200+
-# registry block (last allocated: unlimited-ocr's 8213). This catalog module
-# reserves the NEXT free slot, 8214, via CITADEL_PAW_COMPILE_HOST_PORT,
-# following the same pattern as claudecode/meeting/gotenberg/nvr (module
-# compose lives here in citadel-services, host port is owned by citadel-cli's
-# registry). Registering `EnvPAWCompileHostPort =
-# "CITADEL_PAW_COMPILE_HOST_PORT"` / `PAWCompileHostPort = 8214` in
-# citadel-cli is a follow-up PR against that repo -- out of scope here
-# (catalog-only change). A standalone `docker compose up` defaults the host
-# publish to 8100 (matches container).
+# Host port: the container serves :8100; Citadel assigns host port 8217 via
+# CITADEL_PAW_COMPILE_HOST_PORT in services/ports.go. Both managed and
+# standalone compose defaults use this loopback-only host publish, matching
+# ports[].host and health_check.port. OmniVoice owns 8214; do not reuse it.
 #
 # GPU: required. Compiling loads two 4B models sequentially (peak ~8.5 GB per
 # upstream's docs/HOW_IT_WORKS.md, measured on an M4/24GB Mac over MPS, not
@@ -57,7 +50,7 @@ requires:
   arch: [amd64]
 
 ports:
-  - host: 8214
+  - host: 8217
     container: 8100
     protocol: tcp
     description: >-
@@ -81,7 +74,7 @@ health_check:
   # liveness only (returns {"status":"ok"} before any model is loaded), so a
   # compile is not required for a passing health check.
   endpoint: /health
-  port: 8214
+  port: 8217
   interval: "30s"
   timeout: "10s"
   retries: 5

@@ -1,0 +1,44 @@
+name: validate-paw-compile-ports
+
+on:
+  pull_request:
+    paths:
+      - "services/paw-compile/**"
+      - "tests/**"
+      - ".github/workflows/validate-paw-compile-ports.yml"
+  push:
+    branches: [main]
+    paths:
+      - "services/paw-compile/**"
+      - "tests/**"
+      - ".github/workflows/validate-paw-compile-ports.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  port-contract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Read the public Citadel port registry
+        uses: actions/checkout@v4
+        with:
+          repository: aceteam-ai/citadel-cli
+          ref: main
+          path: citadel-cli
+          persist-credentials: false
+      - name: Record checked registry revision
+        run: git -C citadel-cli rev-parse HEAD
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install metadata parser
+        run: python -m pip install -r tests/requirements.txt
+      - name: Validate static port contracts
+        env:
+          CITADEL_CLI_PORTS_GO: ${{ github.workspace }}/citadel-cli/services/ports.go
+        run: python -m unittest discover -s tests -v

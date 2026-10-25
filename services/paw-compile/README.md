@@ -35,26 +35,26 @@ catalog).
 
 ## HTTP API
 
-The container serves on `:8100`; citadel will publish it on host `8214`
-(`CITADEL_PAW_COMPILE_HOST_PORT`, once registered in citadel-cli, **loopback
-only**). A standalone `docker compose up` defaults the host publish to `8100`.
-Examples below use `8100`.
+The container serves on `:8100`. Both Citadel-managed and standalone compose
+publish on `127.0.0.1:8217` by default, using `CITADEL_PAW_COMPILE_HOST_PORT`.
+The manifest and host-side health check use the same registered port. OmniVoice
+owns host port 8214. The examples below use host port 8217.
 
 ```bash
-curl -s http://127.0.0.1:8100/health
+curl -s http://127.0.0.1:8217/health
 # {"status":"ok"}
 
-curl -s -X POST http://127.0.0.1:8100/api/v1/compile \
+curl -s -X POST http://127.0.0.1:8217/api/v1/compile \
   -H 'Content-Type: application/json' \
   -d '{"spec": "Classify text sentiment as positive or negative."}'
 
-curl -OJ http://127.0.0.1:8100/api/v1/programs/<program_id>/download
+curl -OJ http://127.0.0.1:8217/api/v1/programs/<program_id>/download
 ```
 
 Or the official SDK, unmodified:
 
 ```bash
-PAW_API_URL=http://127.0.0.1:8100 uv run python -c "
+PAW_API_URL=http://127.0.0.1:8217 uv run python -c "
 import programasweights as paw
 program = paw.compile('Classify text sentiment as positive or negative.')
 fn = paw.function(program.id)
@@ -119,7 +119,7 @@ bundles persist like every other stateful module in this catalog.
 
 | Host | Container | Description |
 |------|-----------|--------------|
-| 127.0.0.1:8100 (standalone default) / 127.0.0.1:8214 (citadel-managed, `CITADEL_PAW_COMPILE_HOST_PORT`, pending citadel-cli registration) | 8100 | PAW compile HTTP API, **loopback only** |
+| 127.0.0.1:8217 (`CITADEL_PAW_COMPILE_HOST_PORT`, managed and standalone default) | 8100 | PAW compile HTTP API, **loopback only** |
 
 Published to `127.0.0.1` deliberately: the server has no auth of its own
 (no API key, no rate limiting).
@@ -133,20 +133,32 @@ Published to `127.0.0.1` deliberately: the server has no auth of its own
 
 ## Fabric seam
 
-This catalog module is only the **compose service** (the backing image), same
-scope as claudecode/meeting/gotenberg/nvr. Two follow-ups, out of scope for
-this PR:
+This catalog module is the **compose service**, like claudecode, meeting,
+gotenberg and nvr. The paired Citadel CLI registration defines
+`EnvPAWCompileHostPort = "CITADEL_PAW_COMPILE_HOST_PORT"` and
+`PAWCompileHostPort = 8217` in `services/ports.go`. The compose fallback also
+uses 8217, so publishing without an injected variable agrees with the manifest
+and host-side probe. The in-container listener and health check stay on 8100.
 
-1. **Port registration (citadel-cli).** Register
-   `EnvPAWCompileHostPort = "CITADEL_PAW_COMPILE_HOST_PORT"` /
-   `PAWCompileHostPort = 8214` in `services/ports.go` (next free slot after
-   unlimited-ocr's 8213). Until then only the standalone `docker compose up`
-   path (host 8100) works.
-2. **Fabric engine wiring (aceteam).** There is no `paw-compile` fabric
-   serving engine / provisioning template yet; wiring one (an
-   `EngineHandler` proxying `localhost:8214/api/v1/compile` etc., mirroring
-   `transcribe`/`tts`) is a separate product decision, not part of packaging
-   this module.
+A fabric engine or provisioning template is separate work. This change does
+not expose an unauthenticated endpoint over the mesh or deploy a module to a
+node; consumers remain co-located on loopback. Operator deployment is deferred
+under aceteam-aep#135 S0.
+
+## Port contract checks
+
+The read-only PR workflow parses the catalog and checks the current public
+Citadel CLI port registry. It does not build images or run a container, compile,
+model download or node probe. With Python 3 and the pinned test dependencies:
+
+```bash
+python -m pip install -r tests/requirements.txt
+CITADEL_CLI_PORTS_GO=/path/to/citadel-cli/services/ports.go python -m unittest discover -s tests -v
+```
+
+The local counterpart path is optional for catalog-only checks; CI supplies it
+from a read-only checkout of citadel-cli main. A registration for `paw-compile`
+is allowed to own its port, while every other registered owner must differ.
 
 ## Credits and license
 
