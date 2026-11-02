@@ -29,13 +29,32 @@ def validate(document: Any, schema: Any, label: str) -> list[str]:
     return errors
 
 
+def validate_registry(document: Any, schema: Any, label: str) -> list[str]:
+    errors = validate(document, schema, label)
+    runtimes = document.get("runtime_images") if isinstance(document, dict) else None
+    if not isinstance(runtimes, list):
+        return errors
+
+    names: set[str] = set()
+    for index, runtime in enumerate(runtimes):
+        name = runtime.get("name") if isinstance(runtime, dict) else None
+        if not isinstance(name, str):
+            continue  # The schema reports malformed entries.
+        if name in names:
+            errors.append(
+                f"{label}:runtime_images.{index}.name: duplicate runtime name {name!r}"
+            )
+        names.add(name)
+    return errors
+
+
 def main() -> int:
     registry_schema = load_yaml(ROOT / "schema" / "registry-schema.yaml")
     service_schema = load_yaml(ROOT / "schema" / "service-schema.yaml")
     Draft202012Validator.check_schema(registry_schema)
     Draft202012Validator.check_schema(service_schema)
 
-    failures = validate(
+    failures = validate_registry(
         load_yaml(ROOT / "registry.yaml"), registry_schema, "registry.yaml"
     )
     for manifest in sorted((ROOT / "services").glob("*/service.yaml")):
