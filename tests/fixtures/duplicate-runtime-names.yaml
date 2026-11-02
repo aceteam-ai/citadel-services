@@ -1,0 +1,11 @@
+version: 1
+runtime_images:
+  - name: python
+    image: ghcr.io/aceteam-ai/aceteam-app-python@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+    discovery_alias: ghcr.io/aceteam-ai/aceteam-app-python:stable
+    architectures: [amd64]
+  - name: python
+    image: ghcr.io/aceteam-ai/aceteam-app-python@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+    discovery_alias: ghcr.io/aceteam-ai/aceteam-app-python:stable
+    architectures: [arm64]
+services: []

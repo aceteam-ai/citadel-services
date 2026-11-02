@@ -1,0 +1,90 @@
+$schema: "https://json-schema.org/draft/2020-12/schema"
+title: Citadel Service Registry
+description: Schema for the top-level registry.yaml catalog index
+type: object
+additionalProperties: false
+required: [version, runtime_images, services]
+properties:
+  version:
+    const: 1
+  runtime_images:
+    type: array
+    description: Trusted hosted-app runtime images published by AceTeam
+    uniqueItems: true
+    items:
+      type: object
+      additionalProperties: false
+      required: [name, image, discovery_alias, architectures]
+      properties:
+        name:
+          type: string
+          enum: [python, node, static]
+        image:
+          type: string
+          description: Immutable execution reference from the release lock artifact
+          pattern: "^ghcr\\.io/aceteam-ai/aceteam-app-(python|node|static)@sha256:[0-9a-f]{64}$"
+        discovery_alias:
+          type: string
+          description: Human discovery alias; never used for execution or pre-pull
+          pattern: "^ghcr\\.io/aceteam-ai/aceteam-app-(python|node|static):stable$"
+        architectures:
+          type: array
+          minItems: 1
+          uniqueItems: true
+          items:
+            type: string
+            enum: [amd64, arm64]
+      allOf:
+        - if:
+            properties:
+              name:
+                const: python
+          then:
+            properties:
+              image:
+                pattern: "^ghcr\\.io/aceteam-ai/aceteam-app-python@sha256:[0-9a-f]{64}$"
+              discovery_alias:
+                const: ghcr.io/aceteam-ai/aceteam-app-python:stable
+        - if:
+            properties:
+              name:
+                const: node
+          then:
+            properties:
+              image:
+                pattern: "^ghcr\\.io/aceteam-ai/aceteam-app-node@sha256:[0-9a-f]{64}$"
+              discovery_alias:
+                const: ghcr.io/aceteam-ai/aceteam-app-node:stable
+        - if:
+            properties:
+              name:
+                const: static
+          then:
+            properties:
+              image:
+                pattern: "^ghcr\\.io/aceteam-ai/aceteam-app-static@sha256:[0-9a-f]{64}$"
+              discovery_alias:
+                const: ghcr.io/aceteam-ai/aceteam-app-static:stable
+  services:
+    type: array
+    items:
+      type: object
+      additionalProperties: false
+      required: [name, version, category, gpu, description]
+      properties:
+        name:
+          type: string
+          pattern: "^[a-z0-9][a-z0-9-]*$"
+        version:
+          type: string
+        category:
+          type: string
+        gpu:
+          type: string
+          enum: [required, optional, "no"]
+        description:
+          type: string
+        tags:
+          type: array
+          items:
+            type: string
