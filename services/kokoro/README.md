@@ -70,6 +70,45 @@ X-TTS-Model-Version: kokoro-0.9.4+hexgrad/Kokoro-82M
 X-TTS-Cache-Key: <sha256>
 ```
 
+### `POST /v1/audio/speech/captioned` (opt-in word timing)
+
+Accepts the same request fields and limits as the single-item speech route.
+For American and British English voices, it returns JSON:
+
+```json
+{
+  "audio_base64": "<base64 of the complete encoded audio response>",
+  "words": [
+    {"word": "Hello", "start": 0.125, "end": 0.5},
+    {"word": "world", "start": 0.55, "end": 0.9}
+  ]
+}
+```
+
+`start` and `end` are seconds from the beginning of the decoded audio, ordered
+and bounded by its emitted sample count. `word` is the Kokoro/Misaki English
+text token; punctuation-only and empty tokens are omitted. If normalization
+leaves no timed spoken words (including empty or punctuation-only input), the
+endpoint returns HTTP 422 with `input has no alignable spoken words` and no
+audio or cache entry. The audio field is the exact encoded blob
+produced for this response (`opus`, `mp3`, or `wav`), with the same `X-TTS-*`
+receipt headers as the raw route. The raw route's byte response is unchanged.
+
+Kokoro 0.9.4 supplies English token times from the phoneme durations used to
+generate the same audio. Those durations already reflect the requested speed.
+Chunk offsets use emitted PCM sample counts. The captioned cache stores audio
+and timing together, checks their hash on hits, and uses a separate key from
+the raw audio cache. The request length limit is `KOKORO_MAX_INPUT_CHARS`
+(default 5000); at most that many words are returned.
+
+Kokoro 0.9.4's Mandarin branch does not expose aligned word tokens, so a
+captioned request with a Mandarin voice returns HTTP 422. Missing or invalid
+English alignment fails with HTTP 503 rather than estimated word times.
+Predicted phoneme durations are a synthesis alignment, not a measured waveform
+onset guarantee. The roughly 50 ms waveform spot check in
+`aceteam-ai/aceteam#10287` remains an on-node acceptance gate; it has not been
+established by the fixture tests here.
+
 ### `POST /v1/audio/speech/batch` (chapter / paragraph list)
 
 Synthesize a list of items in one call. Responds with an **NDJSON stream** — one

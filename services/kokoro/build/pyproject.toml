@@ -5,8 +5,8 @@ description = "Kokoro text-to-speech HTTP service for Citadel nodes (EN + ZH, ca
 requires-python = ">=3.10"
 dependencies = [
     # Kokoro-82M synthesis + the misaki G2P frontends for English and Mandarin.
-    "kokoro>=0.9.4",
-    "misaki[en,zh]>=0.9.4",
+    "kokoro==0.9.4",
+    "misaki[en,zh]==0.9.4",
     "fastapi>=0.115",
     "uvicorn[standard]>=0.30",
     "pydantic>=2.0",

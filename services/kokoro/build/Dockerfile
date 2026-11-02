@@ -39,8 +39,8 @@ WORKDIR /app
 # Install deps first for layer caching.
 COPY pyproject.toml ./
 RUN uv pip install --system \
-        "kokoro>=0.9.4" \
-        "misaki[en,zh]>=0.9.4" \
+        "kokoro==0.9.4" \
+        "misaki[en,zh]==0.9.4" \
         "fastapi>=0.115" \
         "uvicorn[standard]>=0.30" \
         "pydantic>=2.0" \

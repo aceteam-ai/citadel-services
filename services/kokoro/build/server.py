@@ -5,6 +5,7 @@ Serves speech synthesis (Kokoro-82M, Apache-2.0) behind three surfaces:
     GET  /health                 -> {"model_loaded", "model_version", ...}
     GET  /info                   -> capacity/slots + voices + cache stats
     POST /v1/audio/speech        -> single item, OpenAI-compatible, audio bytes
+    POST /v1/audio/speech/captioned -> English audio base64 + model word times
     POST /v1/audio/speech/batch  -> array of items, NDJSON stream of per-item
                                      receipts (audio ref + duration + cache-hit)
     GET  /v1/audio/cache/<hash>  -> fetch a cached batch item's audio bytes
@@ -33,10 +34,12 @@ Design notes (issue aceteam-ai/citadel-services#11):
 from __future__ import annotations
 
 import asyncio
+import base64
 import hashlib
 import io
 import json
 import logging
+import math
 import os
 import shutil
 import subprocess
@@ -181,6 +184,52 @@ def _synthesize(text: str, voice: str, speed: float, lang: str) -> np.ndarray:
     return np.concatenate([c.detach().cpu().numpy() for c in chunks]).astype("float32")
 
 
+def _synthesize_captioned(text: str, voice: str, speed: float, lang: str) -> tuple[np.ndarray, list[dict]]:
+    """Use Kokoro's English token times from the same inference that emits audio.
+
+    KPipeline 0.9.4 attaches start_ts/end_ts from the model's predicted phoneme
+    durations (which already include speed). Its Mandarin branch has no tokens.
+    """
+    if lang not in ("a", "b"):
+        raise HTTPException(status_code=422, detail="captioned speech supports English voices only")
+    pipeline = _get_pipeline(lang)
+    chunks: list[np.ndarray] = []
+    words: list[dict] = []
+    samples_before = 0
+    for result in pipeline(text, voice=voice, speed=speed):
+        if result.audio is None or result.tokens is None:
+            raise HTTPException(status_code=503, detail="Kokoro did not provide audio and word alignment")
+        chunk = result.audio.detach().cpu().numpy().astype("float32")
+        chunk_seconds = len(chunk) / SAMPLE_RATE
+        offset = samples_before / SAMPLE_RATE
+        for token in result.tokens:
+            word = token.text.strip()
+            # Punctuation-only and empty tokens are not spoken words. A word
+            # without alignment is an error, never an invented timestamp.
+            if not word or not any(ch.isalnum() for ch in word):
+                continue
+            start, end = token.start_ts, token.end_ts
+            if start is None or end is None or not all(math.isfinite(v) for v in (start, end)):
+                raise HTTPException(status_code=503, detail="Kokoro omitted a word timestamp")
+            if start < 0 or end < start or end > chunk_seconds + 0.025:
+                raise HTTPException(status_code=503, detail="Kokoro word timestamp exceeds emitted audio")
+            # A final predicted frame can extend slightly past the actual
+            # vocoder output. Bound it to real samples, never to input length.
+            start = min(start, chunk_seconds)
+            end = min(end, chunk_seconds)
+            absolute_start, absolute_end = offset + start, offset + end
+            if words and absolute_start < words[-1]["end"] - 1e-6:
+                raise HTTPException(status_code=503, detail="Kokoro word timestamps are out of order")
+            words.append({"word": word, "start": round(absolute_start, 6), "end": round(absolute_end, 6)})
+            if len(words) > MAX_INPUT_CHARS:
+                raise HTTPException(status_code=413, detail="too many caption words")
+        chunks.append(chunk)
+        samples_before += len(chunk)
+    if not words:
+        raise HTTPException(status_code=422, detail="input has no alignable spoken words")
+    return np.concatenate(chunks), words
+
+
 # --- Content-addressed cache ----------------------------------------------
 
 
@@ -208,12 +257,20 @@ def cache_key(text: str, voice: str, fmt: str, speed: float, lang: str) -> str:
     return h.hexdigest()
 
 
+def captioned_cache_key(text: str, voice: str, fmt: str, speed: float, lang: str) -> str:
+    # Separate from pre-existing raw blobs, which have no word sidecar. Use
+    # exact float identity: the raw cache rounds speed to three decimals.
+    return hashlib.sha256(f"captioned-v2\0{cache_key(text, voice, fmt, speed, lang)}\0{speed!r}".encode()).hexdigest()
+
+
 class CacheStore:
     """Pluggable cache interface. `LocalLRUCache` is the node-local default; an
     org-global blob store can implement the same three methods later."""
 
     def get(self, key: str) -> bytes | None: ...
     def put(self, key: str, data: bytes, seconds: float) -> None: ...
+    def get_captioned(self, key: str) -> tuple[bytes, float, list[dict]] | None: ...
+    def put_captioned(self, key: str, data: bytes, seconds: float, words: list[dict]) -> None: ...
     def duration(self, key: str) -> float | None: ...
     def bust(self, key: str | None) -> int: ...
 
@@ -257,12 +314,14 @@ class LocalLRUCache(CacheStore):
     def _scan(self) -> None:
         items = []
         for name in os.listdir(self.dir):
-            if name.endswith(".dur"):
+            if name.endswith((".dur", ".words", ".tmp")):
                 continue  # sidecar duration files are not cache entries
             p = os.path.join(self.dir, name)
             if os.path.isfile(p):
                 st = os.stat(p)
-                items.append((st.st_mtime, name, st.st_size))
+                words_path = p + ".words"
+                words_size = os.path.getsize(words_path) if os.path.isfile(words_path) else 0
+                items.append((st.st_mtime, name, st.st_size + words_size))
         for _, name, size in sorted(items):  # oldest first
             self._entries[name] = size
             self._total += size
@@ -305,6 +364,63 @@ class LocalLRUCache(CacheStore):
             self._total += len(data)
             self._evict_locked()
 
+    def get_captioned(self, key: str) -> tuple[bytes, float, list[dict]] | None:
+        """Return only a complete, hash-matched audio/word pair."""
+        with self._lock:
+            if key not in self._entries:
+                return None
+            try:
+                with open(self._path(key), "rb") as f:
+                    data = f.read()
+                with open(self._path(key) + ".words") as f:
+                    meta = json.load(f)
+            except (OSError, ValueError):
+                return None
+            if (not isinstance(meta, dict)
+                    or meta.get("audio_sha256") != hashlib.sha256(data).hexdigest()
+                    or not isinstance(meta.get("seconds"), (int, float))
+                    or not math.isfinite(meta["seconds"])
+                    or meta["seconds"] < 0
+                    or not isinstance(meta.get("words"), list)
+                    or not meta["words"]
+                    or len(meta["words"]) > MAX_INPUT_CHARS):
+                return None
+            previous_end = 0.0
+            for word in meta["words"]:
+                if (not isinstance(word, dict)
+                        or not isinstance(word.get("word"), str)
+                        or not word["word"]
+                        or not isinstance(word.get("start"), (int, float))
+                        or not isinstance(word.get("end"), (int, float))
+                        or not math.isfinite(word["start"])
+                        or not math.isfinite(word["end"])
+                        or word["start"] < previous_end
+                        or word["end"] < word["start"]
+                        or word["end"] > meta["seconds"] + 0.001):
+                    return None
+                previous_end = word["end"]
+            self._entries.move_to_end(key)
+            os.utime(self._path(key), None)
+            return data, meta["seconds"], meta["words"]
+
+    def put_captioned(self, key: str, data: bytes, seconds: float, words: list[dict]) -> None:
+        """Persist the pair under one lock; hash detects interrupted writes."""
+        meta = {"audio_sha256": hashlib.sha256(data).hexdigest(), "seconds": seconds, "words": words}
+        meta_data = json.dumps(meta).encode()
+        with self._lock:
+            if key in self._entries:
+                self._total -= self._entries.pop(key)
+            p = self._path(key)
+            for suffix, payload in (("", data), (".words", meta_data)):
+                with open(p + suffix + ".tmp", "wb") as f:
+                    f.write(payload)
+                os.replace(p + suffix + ".tmp", p + suffix)
+            with open(p + ".dur", "w") as f:
+                f.write(f"{seconds:.3f}")
+            self._entries[key] = len(data) + len(meta_data)
+            self._total += len(data) + len(meta_data)
+            self._evict_locked()
+
     def duration(self, key: str) -> float | None:
         try:
             with open(self._path(key) + ".dur") as f:
@@ -327,7 +443,7 @@ class LocalLRUCache(CacheStore):
                 break  # all remaining entries pinned; can't free space now
             size = self._entries.pop(victim)
             self._total -= size
-            for suffix in ("", ".dur"):
+            for suffix in ("", ".dur", ".words"):
                 try:
                     os.remove(self._path(victim) + suffix)
                 except FileNotFoundError:
@@ -351,7 +467,7 @@ class LocalLRUCache(CacheStore):
             if size is None:
                 return 0
             self._total -= size
-            for suffix in ("", ".dur"):
+            for suffix in ("", ".dur", ".words"):
                 try:
                     os.remove(self._path(key) + suffix)
                 except FileNotFoundError:
@@ -453,6 +569,35 @@ async def synth_cached(text: str, voice: str, fmt: str, speed: float) -> tuple[b
     seconds = round(len(samples) / SAMPLE_RATE, 3)
     _cache.put(key, data, seconds)
     return data, _receipt(text, voice, fmt, seconds, False, key)
+
+
+async def synth_captioned_cached(
+    text: str, voice: str, fmt: str, speed: float
+) -> tuple[bytes, list[dict], dict]:
+    """Return one matched encoded audio/word pair, including on cache hits."""
+    assert _slots is not None and _cache is not None
+    if len(text) > MAX_INPUT_CHARS:
+        raise HTTPException(status_code=413, detail=f"input is {len(text)} chars; max is {MAX_INPUT_CHARS}")
+    lang = lang_for_voice(voice)
+    if lang not in ("a", "b"):
+        raise HTTPException(status_code=422, detail="captioned speech supports English voices only")
+    if fmt not in FORMAT_MIME:
+        raise HTTPException(status_code=400, detail=f"unsupported format '{fmt}'")
+    key = captioned_cache_key(text, voice, fmt, speed, lang)
+    cached = _cache.get_captioned(key)
+    if cached is not None:
+        data, seconds, words = cached
+        return data, words, _receipt(text, voice, fmt, seconds, True, key)
+    async with _slots:
+        cached = _cache.get_captioned(key)
+        if cached is not None:
+            data, seconds, words = cached
+            return data, words, _receipt(text, voice, fmt, seconds, True, key)
+        samples, words = await asyncio.to_thread(_synthesize_captioned, text, voice, speed, lang)
+        data = await asyncio.to_thread(_encode, samples, fmt)
+        seconds = round(len(samples) / SAMPLE_RATE, 3)
+        _cache.put_captioned(key, data, seconds, words)
+    return data, words, _receipt(text, voice, fmt, seconds, False, key)
 
 
 # Rough per-format constant-bitrate estimate used only when we serve a cached
@@ -587,6 +732,24 @@ async def speech(req: SpeechRequest):
         "X-TTS-Cache-Key": receipt["cache_key"],
     }
     return Response(content=data, media_type=FORMAT_MIME[req.response_format], headers=headers)
+
+
+@app.post("/v1/audio/speech/captioned")
+async def speech_captioned(req: SpeechRequest):
+    data, words, receipt = await synth_captioned_cached(
+        req.input, req.voice, req.response_format, req.speed
+    )
+    headers = {
+        "X-TTS-Cache-Hit": "1" if receipt["cache_hit"] else "0",
+        "X-TTS-Duration-Seconds": str(receipt["seconds"]),
+        "X-TTS-Chars": str(receipt["chars"]),
+        "X-TTS-Model-Version": receipt["model_version"],
+        "X-TTS-Cache-Key": receipt["cache_key"],
+    }
+    return JSONResponse(
+        content={"audio_base64": base64.b64encode(data).decode("ascii"), "words": words},
+        headers=headers,
+    )
 
 
 @app.post("/v1/audio/speech/batch")
