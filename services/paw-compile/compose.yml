@@ -26,11 +26,9 @@
 # across restarts and image upgrades like every other stateful module in this
 # catalog.
 #
-# Host port: the container serves :8100. citadel would publish it on host
-# 8214 via CITADEL_PAW_COMPILE_HOST_PORT once registered in citadel-cli's
-# services/ports.go (follow-up, see service.yaml) -- next free slot in the
-# 8200 block after unlimited-ocr's 8213. A standalone `docker compose up`
-# defaults the host publish to 8100.
+# Host port: the container serves :8100. Both the standalone fallback and
+# Citadel's CITADEL_PAW_COMPILE_HOST_PORT registration publish on host 8217,
+# matching the manifest and its host-side health check. OmniVoice owns 8214.
 #
 # Loopback-only publish (127.0.0.1), deliberately: the server has no auth of
 # its own (no API key, no rate limiting -- see upstream README), so it must
@@ -53,7 +51,7 @@ services:
       - --data-dir
       - /data
     ports:
-      - "127.0.0.1:${CITADEL_PAW_COMPILE_HOST_PORT:-8100}:8100"
+      - "127.0.0.1:${CITADEL_PAW_COMPILE_HOST_PORT:-8217}:8100"
     environment:
       - HF_TOKEN=${HF_TOKEN:-}
     volumes:
